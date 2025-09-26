@@ -10,6 +10,7 @@ import {
 
 interface CommandOptions {
   verbose?: boolean;
+  force?: boolean;
 }
 
 interface ProcessedMetafield {
@@ -22,12 +23,19 @@ interface ProcessedMetafield {
 }
 
 export async function deleteUnstructuredMetafields(options: CommandOptions = {}) {
-  const { verbose = false } = options;
+  const { verbose = false, force = false } = options;
 
   try {
     // Select shop
     const shop = await selectShop();
     const client = createShopifyClient(shop);
+
+    if (force) {
+      console.log('\n⚠️  FORCE MODE ENABLED - All unstructured metafields will be deleted automatically!');
+      console.log('    This action cannot be undone. Press Ctrl+C to cancel.\n');
+      // Give user a moment to cancel if they want
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
 
     console.log('\nScanning for products with unstructured metafields...\n');
 
@@ -150,14 +158,22 @@ export async function deleteUnstructuredMetafields(options: CommandOptions = {})
             : metafield.value;
           console.log(`Value: ${valuePreview}\n`);
 
-          const { shouldDelete } = await inquirer.prompt([
-            {
-              type: 'confirm',
-              name: 'shouldDelete',
-              message: `Delete ALL instances of ${metafieldKey} across ALL products?`,
-              default: false
-            }
-          ]);
+          let shouldDelete = false;
+
+          if (force) {
+            console.log(`🔥 Force mode: Automatically deleting ${metafieldKey}`);
+            shouldDelete = true;
+          } else {
+            const response = await inquirer.prompt([
+              {
+                type: 'confirm',
+                name: 'shouldDelete',
+                message: `Delete ALL instances of ${metafieldKey} across ALL products?`,
+                default: false
+              }
+            ]);
+            shouldDelete = response.shouldDelete;
+          }
 
           if (shouldDelete) {
             console.log(`\nDeleting all instances of ${metafieldKey}...`);

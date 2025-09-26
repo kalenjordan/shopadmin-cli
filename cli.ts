@@ -235,6 +235,7 @@ productDefinitions
   .command('delete-unstructured')
   .description('Delete metafields without definitions')
   .option('-v, --verbose', 'Show all GraphQL queries and responses')
+  .option('-f, --force', 'Delete all unstructured metafields without prompting')
   .action(async (options) => {
     // Import dynamically to avoid loading everything at startup
     const { deleteUnstructuredMetafields } = await import('./src/commands/product-definitions');
