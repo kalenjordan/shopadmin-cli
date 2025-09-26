@@ -1,0 +1,27 @@
+{
+  "name": "shopadmin-cli",
+  "version": "1.0.0",
+  "description": "CLI for managing Shopify admin operations",
+  "main": "dist/cli.js",
+  "bin": {
+    "shopadmin": "./cli.ts"
+  },
+  "scripts": {
+    "dev": "tsx cli.ts",
+    "build": "tsc",
+    "start": "node dist/cli.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@types/inquirer": "^9.0.9",
+    "@types/node": "^24.5.2",
+    "commander": "^14.0.1",
+    "inquirer": "^12.9.6",
+    "typescript": "^5.9.2"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.6"
+  }
+}
