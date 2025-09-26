@@ -1,6 +1,6 @@
 export const GET_PRODUCTS_WITH_UNSTRUCTURED_METAFIELDS = `
   query GetProductsWithUnstructuredMetafields($cursor: String) {
-    products(first: 10, after: $cursor) {
+    products(first: 100, after: $cursor) {
       pageInfo {
         hasNextPage
         endCursor

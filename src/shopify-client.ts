@@ -75,11 +75,35 @@ export function createShopifyClient(shop: Shop) {
     );
   }
 
-  const client = createAdminApiClient({
+  const baseClient = createAdminApiClient({
     storeDomain: shop.url.replace('https://', '').replace('http://', ''),
     accessToken: shop.accessToken,
     apiVersion: config.apiVersion
   });
+
+  // Wrap the client to add better error handling
+  const client = {
+    ...baseClient,
+    request: async (query: string, options?: any) => {
+      try {
+        const response = await baseClient.request(query, options);
+        return response;
+      } catch (error: any) {
+        // Check for authentication errors
+        if (error.message?.toLowerCase().includes('unauthorized') ||
+            error.message?.toLowerCase().includes('invalid api key') ||
+            error.response?.errors?.some((e: any) =>
+              e.message?.toLowerCase().includes('access denied'))) {
+          throw new Error(
+            `Authentication failed for shop "${formatShopName(shop.name)}".\n` +
+            `The access token may be invalid or expired.\n` +
+            `To update it, run: shopadmin add -n "${shop.name}"`
+          );
+        }
+        throw error;
+      }
+    }
+  };
 
   return client;
 }

@@ -1,9 +1,9 @@
-#!/usr/bin/env node
+#!/usr/bin/env tsx
 
 import { Command } from 'commander';
 import inquirer from 'inquirer';
 import { addShop, listShops, removeShop, getShop } from './src/storage';
-import { formatShopName } from './src/utils/colors';
+import { formatShopName, formatShopInfo } from './src/utils/colors';
 import chalk from 'chalk';
 import fs from 'fs';
 import path from 'path';
@@ -168,6 +168,63 @@ program
     }
   });
 
+program
+  .command('default')
+  .description('Set the default shop for this directory')
+  .action(async () => {
+    try {
+      const shops = listShops();
+
+      if (shops.length === 0) {
+        console.log('No shops configured yet. Use "shopadmin add" to add a shop.');
+        process.exit(1);
+      }
+
+      // Check if there's already a local config
+      const localConfigPath = path.join(process.cwd(), '.shopadmin.config.ts');
+      let currentDefault: string | undefined;
+
+      if (fs.existsSync(localConfigPath)) {
+        try {
+          const config = require(localConfigPath);
+          currentDefault = config.default?.defaultShop || config.defaultShop;
+        } catch (error) {
+          // Silently fail
+        }
+      }
+
+      // Prompt for shop selection
+      const { shopName } = await inquirer.prompt([
+        {
+          type: 'list',
+          name: 'shopName',
+          message: currentDefault
+            ? `Select a shop (current: ${formatShopName(currentDefault)}):`
+            : 'Select a shop:',
+          choices: shops.map(s => ({
+            name: formatShopInfo(s.name, s.url),
+            value: s.name
+          }))
+        }
+      ]);
+
+      // Save the local config
+      const localConfig = {
+        defaultShop: shopName
+      };
+
+      const content = `export default ${JSON.stringify(localConfig, null, 2)};`;
+      fs.writeFileSync(localConfigPath, content, 'utf8');
+
+      console.log(`\n✓ Set default shop to ${formatShopName(shopName)}`);
+      console.log(`  Configuration saved to: ${chalk.gray(localConfigPath)}`);
+
+    } catch (error) {
+      console.error('Error setting default shop:', error);
+      process.exit(1);
+    }
+  });
+
 // Product definitions command with subcommands
 const productDefinitions = program
   .command('product-definitions')
@@ -177,10 +234,11 @@ const productDefinitions = program
 productDefinitions
   .command('delete-unstructured')
   .description('Delete metafields without definitions')
-  .action(async () => {
+  .option('-v, --verbose', 'Show all GraphQL queries and responses')
+  .action(async (options) => {
     // Import dynamically to avoid loading everything at startup
     const { deleteUnstructuredMetafields } = await import('./src/commands/product-definitions');
-    await deleteUnstructuredMetafields();
+    await deleteUnstructuredMetafields(options);
   });
 
 program.parse(process.argv);

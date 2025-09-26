@@ -5,209 +5,290 @@ import {
   CREATE_METAFIELD_DEFINITION,
   DELETE_METAFIELD_DEFINITION,
   GET_METAFIELD_DEFINITIONS,
-  UnstructuredMetafield,
-  ProductWithMetafields
+  UnstructuredMetafield
 } from '../graphql/metafields';
 
-interface MetafieldGroup {
+interface CommandOptions {
+  verbose?: boolean;
+}
+
+interface ProcessedMetafield {
   namespace: string;
   key: string;
   type: string;
-  samples: Array<{
-    productTitle: string;
-    productHandle: string;
-    value: string;
-  }>;
-  totalCount: number;
+  value: string;
+  productTitle: string;
+  productHandle: string;
 }
 
-export async function deleteUnstructuredMetafields() {
+export async function deleteUnstructuredMetafields(options: CommandOptions = {}) {
+  const { verbose = false } = options;
+
   try {
     // Select shop
     const shop = await selectShop();
     const client = createShopifyClient(shop);
 
-    console.log('\nScanning for unstructured metafields...\n');
+    console.log('\nScanning for products with unstructured metafields...\n');
 
-    // Collect all unstructured metafields across products
-    const metafieldGroups: Map<string, MetafieldGroup> = new Map();
+    let deletedCount = 0;
+    let totalProductsScanned = 0;
+    const deletedMetafields = new Set<string>();
     let cursor: string | null = null;
-    let productCount = 0;
+    let shouldRestartScan = false;
 
-    do {
+    // Keep processing until no more products
+    while (true) {
+      // Reset cursor if we deleted something (to start fresh)
+      if (shouldRestartScan) {
+        cursor = null;
+        shouldRestartScan = false;
+        totalProductsScanned = 0;
+        console.log('\nRestarting scan from beginning after deletion...\n');
+      }
+
+      if (verbose) {
+        console.log('\n--- Fetching batch of products ---');
+        console.log('Cursor:', cursor || 'start');
+      }
+
+      // Fetch batch of products
       const response = await client.request(GET_PRODUCTS_WITH_UNSTRUCTURED_METAFIELDS, {
         variables: { cursor }
       });
 
-      const products = response.data.products;
+      if (verbose) {
+        console.log('Response:', JSON.stringify(response, null, 2));
+      }
 
-      for (const edge of products.edges) {
+      // Check for errors
+      if (response.errors) {
+        console.error('\n❌ GraphQL Errors:');
+
+        // Handle different error formats
+        let errorMessages = '';
+        if (Array.isArray(response.errors)) {
+          errorMessages = response.errors.map((err: any) => err.message || err).join(', ');
+        } else if (typeof response.errors === 'object') {
+          errorMessages = response.errors.message || JSON.stringify(response.errors);
+        } else {
+          errorMessages = String(response.errors);
+        }
+
+        if (errorMessages.toLowerCase().includes('access denied') ||
+            errorMessages.toLowerCase().includes('unauthorized') ||
+            errorMessages.toLowerCase().includes('invalid api key or access token')) {
+          console.error('🔐 Authentication Error: The access token for this shop is invalid or expired.');
+          console.error('   Please update the access token using: shopadmin add -n "' + shop.name + '"');
+        } else if (errorMessages.toLowerCase().includes('throttled')) {
+          console.error('⏱️  Rate Limit: API rate limit exceeded. Please wait a moment and try again.');
+        } else {
+          console.error('Full error details:', JSON.stringify(response.errors, null, 2));
+        }
+
+        throw new Error('GraphQL query failed: ' + errorMessages);
+      }
+
+      if (!response.data?.products?.edges?.length) {
+        console.log('\n✅ No more products to process.');
+        break;
+      }
+
+      const products = response.data.products.edges;
+      const batchSize = products.length;
+      totalProductsScanned += batchSize;
+
+      // Show progress
+      process.stdout.write(`\rScanned ${totalProductsScanned} products...`);
+
+      // Look for any product with unstructured metafields
+      let foundUnstructuredProduct = null;
+
+      for (const edge of products) {
         const product = edge.node;
-        productCount++;
 
-        // Filter for unstructured metafields (no definition)
+        // Find unstructured metafields (those without definitions)
         const unstructuredMetafields = product.metafields.edges
-          .filter((mf: any) => !mf.node.definition)
-          .map((mf: any) => ({
-            ...mf.node,
-            productTitle: product.title,
-            productHandle: product.handle
-          }));
+          .filter((mf: any) => !mf.node.definition);
 
-        // Group by namespace:key
-        for (const metafield of unstructuredMetafields) {
-          const key = `${metafield.namespace}:${metafield.key}`;
-
-          if (!metafieldGroups.has(key)) {
-            metafieldGroups.set(key, {
-              namespace: metafield.namespace,
-              key: metafield.key,
-              type: metafield.type,
-              samples: [],
-              totalCount: 0
-            });
-          }
-
-          const group = metafieldGroups.get(key)!;
-          group.totalCount++;
-
-          // Keep up to 3 samples
-          if (group.samples.length < 3) {
-            group.samples.push({
-              productTitle: metafield.productTitle,
-              productHandle: metafield.productHandle,
-              value: metafield.value
-            });
-          }
+        if (unstructuredMetafields.length > 0) {
+          foundUnstructuredProduct = {
+            product,
+            unstructuredMetafields: unstructuredMetafields.map((mf: any) => ({
+              ...mf.node,
+              productTitle: product.title,
+              productHandle: product.handle
+            }))
+          };
+          break; // Stop at first product with unstructured metafields
         }
       }
 
-      cursor = products.pageInfo.hasNextPage ? products.pageInfo.endCursor : null;
+      // If we found a product with unstructured metafields, process it
+      if (foundUnstructuredProduct) {
+        const { product, unstructuredMetafields } = foundUnstructuredProduct;
 
-      // Show progress
-      process.stdout.write(`\rScanned ${productCount} products...`);
-    } while (cursor);
+        console.log(`\n\nFound ${unstructuredMetafields.length} unstructured metafield(s) in product: "${product.title}"`);
 
-    console.log(`\n\nFound ${metafieldGroups.size} unique unstructured metafield keys across ${productCount} products.\n`);
+        // Process each unstructured metafield
+        for (const metafield of unstructuredMetafields) {
+          const metafieldKey = `${metafield.namespace}:${metafield.key}`;
 
-    if (metafieldGroups.size === 0) {
-      console.log('No unstructured metafields found. All metafields have definitions.');
-      return;
-    }
+          // Skip if we've already deleted this namespace:key combination
+          if (deletedMetafields.has(metafieldKey)) {
+            console.log(`  Skipping ${metafieldKey} (already deleted)`);
+            continue;
+          }
 
-    // Process each metafield group
-    const deletedGroups: string[] = [];
-    const skippedGroups: string[] = [];
+          console.log('\n────────────────────────────────────────────────────────────────────────────────');
+          console.log(`\nMetafield: ${metafieldKey}`);
+          console.log(`Type: ${metafield.type}`);
+          console.log(`Product: "${metafield.productTitle}" (${metafield.productHandle})`);
 
-    for (const [key, group] of metafieldGroups) {
-      console.log('─'.repeat(80));
-      console.log(`\nMetafield: ${group.namespace}:${group.key}`);
-      console.log(`Type: ${group.type}`);
-      console.log(`Found in ${group.totalCount} product(s)\n`);
+          const valuePreview = metafield.value.length > 200
+            ? metafield.value.substring(0, 200) + '...'
+            : metafield.value;
+          console.log(`Value: ${valuePreview}\n`);
 
-      console.log('Sample values:');
-      group.samples.forEach((sample, index) => {
-        const valuePreview = sample.value.length > 100
-          ? sample.value.substring(0, 100) + '...'
-          : sample.value;
-        console.log(`  ${index + 1}. Product: "${sample.productTitle}" (${sample.productHandle})`);
-        console.log(`     Value: ${valuePreview}\n`);
-      });
-
-      const { shouldDelete } = await inquirer.prompt([
-        {
-          type: 'confirm',
-          name: 'shouldDelete',
-          message: `Delete all ${group.totalCount} instance(s) of this metafield?`,
-          default: false
-        }
-      ]);
-
-      if (shouldDelete) {
-        console.log(`\nCreating and deleting definition for ${group.namespace}:${group.key}...`);
-
-        try {
-          // First check if a definition already exists
-          const existingDefResponse = await client.request(GET_METAFIELD_DEFINITIONS, {
-            variables: {
-              namespace: group.namespace,
-              key: group.key
+          const { shouldDelete } = await inquirer.prompt([
+            {
+              type: 'confirm',
+              name: 'shouldDelete',
+              message: `Delete ALL instances of ${metafieldKey} across ALL products?`,
+              default: false
             }
-          });
+          ]);
 
-          let definitionId: string;
+          if (shouldDelete) {
+            console.log(`\nDeleting all instances of ${metafieldKey}...`);
 
-          if (existingDefResponse.data.metafieldDefinitions.edges.length > 0) {
-            // Definition already exists
-            definitionId = existingDefResponse.data.metafieldDefinitions.edges[0].node.id;
-            console.log('Found existing definition, will delete it along with all metafields...');
-          } else {
-            // Create a new definition
-            const createResponse = await client.request(CREATE_METAFIELD_DEFINITION, {
-              variables: {
-                definition: {
-                  namespace: group.namespace,
-                  key: group.key,
-                  name: `${group.namespace} ${group.key}`,
-                  type: group.type,
-                  ownerType: 'PRODUCT'
+            try {
+              // First check if a definition already exists
+              const existingDefResponse = await client.request(GET_METAFIELD_DEFINITIONS, {
+                variables: {
+                  namespace: metafield.namespace,
+                  key: metafield.key
                 }
+              });
+
+              let definitionId: string;
+
+              if (existingDefResponse.data.metafieldDefinitions.edges.length > 0) {
+                // Definition already exists
+                definitionId = existingDefResponse.data.metafieldDefinitions.edges[0].node.id;
+                console.log('Found existing definition, will delete it along with all metafields...');
+              } else {
+                // Map legacy types to current Shopify metafield types
+                const typeMapping: { [key: string]: string } = {
+                  'string': 'single_line_text_field',
+                  'integer': 'number_integer',
+                  'json_string': 'json',
+                  'boolean': 'boolean',
+                  'number_decimal': 'number_decimal',
+                  'number_integer': 'number_integer',
+                  'date': 'date',
+                  'date_time': 'date_time',
+                  'url': 'url',
+                  'color': 'color',
+                  'rating': 'rating',
+                  'multi_line_text_field': 'multi_line_text_field',
+                  'single_line_text_field': 'single_line_text_field',
+                  'json': 'json',
+                  // Add more mappings as needed
+                };
+
+                const mappedType = typeMapping[metafield.type] || metafield.type;
+
+                // Create a new definition
+                const createResponse = await client.request(CREATE_METAFIELD_DEFINITION, {
+                  variables: {
+                    definition: {
+                      namespace: metafield.namespace,
+                      key: metafield.key,
+                      name: `${metafield.namespace} ${metafield.key}`,
+                      type: mappedType,
+                      ownerType: 'PRODUCT'
+                    }
+                  }
+                });
+
+                if (createResponse.data.metafieldDefinitionCreate.userErrors.length > 0) {
+                  console.error('Error creating definition:', createResponse.data.metafieldDefinitionCreate.userErrors);
+                  continue;
+                }
+
+                definitionId = createResponse.data.metafieldDefinitionCreate.createdDefinition.id;
+                console.log('Created temporary definition...');
               }
-            });
 
-            if (createResponse.data.metafieldDefinitionCreate.userErrors.length > 0) {
-              console.error('Error creating definition:', createResponse.data.metafieldDefinitionCreate.userErrors);
-              skippedGroups.push(key);
-              continue;
+              // Delete the definition and all associated metafields
+              const deleteResponse = await client.request(DELETE_METAFIELD_DEFINITION, {
+                variables: {
+                  id: definitionId,
+                  deleteAllAssociatedMetafields: true
+                }
+              });
+
+              if (deleteResponse.data.metafieldDefinitionDelete.userErrors.length > 0) {
+                console.error('Error deleting definition:', deleteResponse.data.metafieldDefinitionDelete.userErrors);
+              } else {
+                console.log(`✓ Successfully deleted all instances of ${metafieldKey}`);
+                deletedMetafields.add(metafieldKey);
+                deletedCount++;
+                shouldRestartScan = true; // Restart scan after deletion
+              }
+            } catch (error) {
+              console.error(`Error processing ${metafieldKey}:`, error);
             }
-
-            definitionId = createResponse.data.metafieldDefinitionCreate.createdDefinition.id;
-            console.log('Created temporary definition...');
-          }
-
-          // Delete the definition and all associated metafields
-          const deleteResponse = await client.request(DELETE_METAFIELD_DEFINITION, {
-            variables: {
-              id: definitionId,
-              deleteAllAssociatedMetafields: true
-            }
-          });
-
-          if (deleteResponse.data.metafieldDefinitionDelete.userErrors.length > 0) {
-            console.error('Error deleting definition:', deleteResponse.data.metafieldDefinitionDelete.userErrors);
-            skippedGroups.push(key);
           } else {
-            console.log(`✓ Successfully deleted all ${group.totalCount} instance(s) of ${group.namespace}:${group.key}`);
-            deletedGroups.push(key);
+            console.log('Skipped.');
           }
-        } catch (error) {
-          console.error(`Error processing ${group.namespace}:${group.key}:`, error);
-          skippedGroups.push(key);
         }
+
+        // If we deleted something, restart the scan from the beginning
+        if (shouldRestartScan) {
+          continue; // This will restart with cursor = null
+        }
+      }
+
+      // Check if there are more pages
+      if (response.data.products.pageInfo.hasNextPage) {
+        cursor = response.data.products.pageInfo.endCursor;
       } else {
-        console.log('Skipped.');
-        skippedGroups.push(key);
+        // No more pages and no unstructured metafields found
+        console.log('\n\n✅ Finished scanning all products.');
+        break;
       }
     }
 
     // Summary
     console.log('\n' + '═'.repeat(80));
     console.log('\nSummary:');
-    console.log(`- Deleted ${deletedGroups.length} metafield type(s)`);
-    console.log(`- Skipped ${skippedGroups.length} metafield type(s)`);
+    console.log(`- Scanned ${totalProductsScanned} product(s)`);
+    console.log(`- Deleted ${deletedCount} metafield type(s)`);
 
-    if (deletedGroups.length > 0) {
+    if (deletedMetafields.size > 0) {
       console.log('\nDeleted metafields:');
-      deletedGroups.forEach(key => console.log(`  - ${key}`));
+      deletedMetafields.forEach(key => console.log(`  - ${key}`));
     }
 
-    if (skippedGroups.length > 0) {
-      console.log('\nSkipped metafields:');
-      skippedGroups.forEach(key => console.log(`  - ${key}`));
+  } catch (error: any) {
+    // Check for specific error types
+    if (error.message?.includes('Authentication Error') ||
+        error.message?.toLowerCase().includes('unauthorized') ||
+        error.message?.toLowerCase().includes('access denied')) {
+      // Authentication error already formatted above
+    } else if (error.message?.includes('Rate Limit')) {
+      // Rate limit error already formatted above
+    } else if (error.message?.includes('API version not configured')) {
+      // Config error already has good message
+      console.error('\n❌', error.message);
+    } else {
+      console.error('\n❌ Error:', error.message || error);
+      if (verbose) {
+        console.error('\nFull error:', error);
+      }
     }
-
-  } catch (error) {
-    console.error('Error:', error);
     process.exit(1);
   }
 }

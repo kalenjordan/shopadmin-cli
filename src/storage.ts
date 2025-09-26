@@ -20,10 +20,10 @@ export function loadShops(): ShopsConfig {
       return getDefaultConfig();
     }
 
-    const fileContent = fs.readFileSync(CONFIG_FILE_PATH, 'utf8');
-    // Parse the TypeScript export default syntax
-    const jsonContent = fileContent.replace(/^export default /, '').replace(/;$/, '');
-    const config = JSON.parse(jsonContent);
+    // Use require to import the TypeScript module
+    delete require.cache[CONFIG_FILE_PATH]; // Clear cache to get fresh data
+    const configModule = require(CONFIG_FILE_PATH);
+    const config = configModule.default || configModule;
 
     return config as ShopsConfig;
   } catch (error) {
