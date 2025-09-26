@@ -2,7 +2,11 @@
 
 import { Command } from 'commander';
 import inquirer from 'inquirer';
-import { addShop, listShops, removeShop } from './src/storage';
+import { addShop, listShops, removeShop, getShop } from './src/storage';
+import { formatShopName } from './src/utils/colors';
+import chalk from 'chalk';
+import fs from 'fs';
+import path from 'path';
 
 const asciiArt = `
   ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
@@ -17,11 +21,34 @@ const asciiArt = `
   ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
 `;
 
+// Load local config synchronously at startup
+let defaultShopFromConfig: string | undefined;
+const localConfigPath = path.join(process.cwd(), '.shopadmin.config.ts');
+if (fs.existsSync(localConfigPath)) {
+  try {
+    // Use require for synchronous loading of TypeScript config
+    const config = require(localConfigPath);
+    defaultShopFromConfig = config.default?.defaultShop || config.defaultShop;
+  } catch (error) {
+    // Silently fail if config can't be loaded
+  }
+}
+
 const program = new Command();
+
+// Build description with default shop if available
+let description = `${asciiArt}\nCLI for managing Shopify admin operations`;
+
+if (defaultShopFromConfig) {
+  const shop = getShop(defaultShopFromConfig);
+  if (shop) {
+    description += `\n\n${chalk.gray('Default shop:')} ${formatShopName(shop.name)}`;
+  }
+}
 
 program
   .name('shopadmin')
-  .description(`${asciiArt}\nCLI for managing Shopify admin operations`)
+  .description(description)
   .version('1.0.0');
 
 program
@@ -69,6 +96,14 @@ program
       const name = options.name || subdomain;
       const token = options.token || answers.token;
 
+      // TODO: If config.apiVersion is not set, prompt user to select from available API versions
+      // const config = loadShops();
+      // if (!config.apiVersion) {
+      //   const { apiVersion } = await inquirer.prompt([...]);
+      //   config.apiVersion = apiVersion;
+      //   saveShops(config);
+      // }
+
       addShop(name, url, token);
     } catch (error) {
       console.error('Error adding shop:', error);
@@ -87,13 +122,27 @@ program
         return;
       }
 
+      // Get the default shop from local config
+      let defaultShopName: string | undefined;
+      const localConfigPath = path.join(process.cwd(), '.shopadmin.config.ts');
+      if (fs.existsSync(localConfigPath)) {
+        try {
+          const config = require(localConfigPath);
+          defaultShopName = config.default?.defaultShop || config.defaultShop;
+        } catch (error) {
+          // Silently fail
+        }
+      }
+
       console.log('\nConfigured Shopify Stores:');
       console.log('─'.repeat(60));
       shops.forEach((shop, index) => {
-        console.log(`\n${index + 1}. ${shop.name}`);
-        console.log(`   URL: ${shop.url}`);
-        console.log(`   Token: ${shop.accessToken.substring(0, 10)}...`);
-        console.log(`   Added: ${new Date(shop.addedAt).toLocaleString()}`);
+        const isDefault = shop.name === defaultShopName;
+        const defaultBadge = isDefault ? chalk.inverse(' DEFAULT ') + ' ' : '';
+        console.log(`\n${index + 1}. ${defaultBadge}${formatShopName(shop.name)}`);
+        console.log(`   ${chalk.gray('URL:')} ${shop.url}`);
+        console.log(`   ${chalk.gray('Token:')} ${shop.accessToken.substring(0, 10)}...`);
+        console.log(`   ${chalk.gray('Added:')} ${new Date(shop.addedAt).toLocaleString()}`);
       });
       console.log('');
     } catch (error) {
@@ -110,13 +159,28 @@ program
     try {
       const removed = removeShop(options.name);
       if (!removed) {
-        console.log(`Shop "${options.name}" not found.`);
+        console.log(`Shop ${formatShopName(options.name)} not found.`);
         process.exit(1);
       }
     } catch (error) {
       console.error('Error removing shop:', error);
       process.exit(1);
     }
+  });
+
+// Product definitions command with subcommands
+const productDefinitions = program
+  .command('product-definitions')
+  .alias('pd')
+  .description('Manage product metafield definitions');
+
+productDefinitions
+  .command('delete-unstructured')
+  .description('Delete metafields without definitions')
+  .action(async () => {
+    // Import dynamically to avoid loading everything at startup
+    const { deleteUnstructuredMetafields } = await import('./src/commands/product-definitions');
+    await deleteUnstructuredMetafields();
   });
 
 program.parse(process.argv);

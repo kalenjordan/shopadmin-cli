@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { Shop, ShopsConfig } from './types';
+import { formatShopName } from './utils/colors';
 
 const CONFIG_FILE_NAME = 'shopadmin.config.ts';
 const CONFIG_FILE_PATH = path.join(os.homedir(), CONFIG_FILE_NAME);
@@ -9,6 +10,7 @@ const CONFIG_FILE_PATH = path.join(os.homedir(), CONFIG_FILE_NAME);
 function getDefaultConfig(): ShopsConfig {
   return {
     shops: []
+    // TODO: Prompt for API version selection when adding first shop
   };
 }
 
@@ -22,6 +24,7 @@ export function loadShops(): ShopsConfig {
     // Parse the TypeScript export default syntax
     const jsonContent = fileContent.replace(/^export default /, '').replace(/;$/, '');
     const config = JSON.parse(jsonContent);
+
     return config as ShopsConfig;
   } catch (error) {
     console.error('Error loading shops config:', error);
@@ -48,10 +51,10 @@ export function addShop(name: string, url: string, accessToken: string): void {
 
   if (existingShopIndex !== -1) {
     config.shops[existingShopIndex] = newShop;
-    console.log(`Updated shop: ${name}`);
+    console.log(`Updated shop: ${formatShopName(name)}`);
   } else {
     config.shops.push(newShop);
-    console.log(`Added new shop: ${name}`);
+    console.log(`Added new shop: ${formatShopName(name)}`);
   }
 
   saveShops(config);
@@ -75,7 +78,7 @@ export function removeShop(name: string): boolean {
 
   if (config.shops.length < initialLength) {
     saveShops(config);
-    console.log(`Removed shop: ${name}`);
+    console.log(`Removed shop: ${formatShopName(name)}`);
     return true;
   }
 

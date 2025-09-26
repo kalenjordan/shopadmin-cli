@@ -7,4 +7,5 @@ export interface Shop {
 
 export interface ShopsConfig {
   shops: Shop[];
+  apiVersion?: string; // Shopify API version to use
 }

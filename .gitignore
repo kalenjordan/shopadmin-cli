@@ -37,3 +37,4 @@ temp/
 # User configuration (contains sensitive tokens)
 ~/shopadmin.config.ts
 shopadmin.config.ts
+.shopadmin.config.ts
