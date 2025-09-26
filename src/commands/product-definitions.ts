@@ -1,5 +1,6 @@
 import inquirer from 'inquirer';
-import { selectShop, createShopifyClient } from '../shopify-client';
+import { createShopifyClient } from '../shopify-client';
+import { Shop } from '../types';
 import {
   GET_PRODUCTS_WITH_UNSTRUCTURED_METAFIELDS,
   CREATE_METAFIELD_DEFINITION,
@@ -11,6 +12,7 @@ import {
 interface CommandOptions {
   verbose?: boolean;
   force?: boolean;
+  shop: Shop;
 }
 
 interface ProcessedMetafield {
@@ -22,12 +24,10 @@ interface ProcessedMetafield {
   productHandle: string;
 }
 
-export async function deleteUnstructuredMetafields(options: CommandOptions = {}) {
-  const { verbose = false, force = false } = options;
+export async function deleteUnstructuredMetafields(options: CommandOptions) {
+  const { verbose = false, force = false, shop } = options;
 
   try {
-    // Select shop
-    const shop = await selectShop();
     const client = createShopifyClient(shop);
 
     if (force) {

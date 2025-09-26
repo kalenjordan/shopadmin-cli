@@ -26,12 +26,26 @@ function loadLocalConfig(): LocalConfig | null {
   }
 }
 
-export async function selectShop(): Promise<Shop> {
+export async function selectShop(overrideName?: string): Promise<Shop> {
   const shops = listShops();
 
   if (shops.length === 0) {
     console.error('No shops configured. Use "shopadmin add" to add a shop.');
     process.exit(1);
+  }
+
+  // Check if override shop name was provided
+  if (overrideName) {
+    const overrideShop = getShop(overrideName);
+    if (overrideShop) {
+      console.log(`Using shop: ${formatShopName(overrideShop.name)} (from --shop parameter)`);
+      return overrideShop;
+    } else {
+      console.error(`Shop "${overrideName}" not found.`);
+      console.log('Available shops:');
+      shops.forEach(shop => console.log(`  - ${shop.name}`));
+      process.exit(1);
+    }
   }
 
   // Check for local config default shop

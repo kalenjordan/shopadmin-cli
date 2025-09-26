@@ -3,6 +3,7 @@
 import { Command } from 'commander';
 import inquirer from 'inquirer';
 import { addShop, listShops, removeShop, getShop } from './src/storage';
+import { selectShop } from './src/shopify-client';
 import { formatShopName, formatShopInfo } from './src/utils/colors';
 import chalk from 'chalk';
 import fs from 'fs';
@@ -169,6 +170,20 @@ program
   });
 
 program
+  .command('info')
+  .description('Show detailed information about a shop')
+  .option('-s, --shop <name>', 'Shop name to use (overrides default)')
+  .option('-v, --verbose', 'Show additional details like shop ID')
+  .action(async (options) => {
+    // Select shop at CLI level
+    const shop = await selectShop(options.shop);
+
+    // Import dynamically to avoid loading everything at startup
+    const { showShopInfo } = await import('./src/commands/shop-info');
+    await showShopInfo({ ...options, shop });
+  });
+
+program
   .command('default')
   .description('Set the default shop for this directory')
   .action(async () => {
@@ -236,10 +251,14 @@ productDefinitions
   .description('Delete metafields without definitions')
   .option('-v, --verbose', 'Show all GraphQL queries and responses')
   .option('-f, --force', 'Delete all unstructured metafields without prompting')
+  .option('-s, --shop <name>', 'Shop name to use (overrides default)')
   .action(async (options) => {
+    // Select shop at CLI level
+    const shop = await selectShop(options.shop);
+
     // Import dynamically to avoid loading everything at startup
     const { deleteUnstructuredMetafields } = await import('./src/commands/product-definitions');
-    await deleteUnstructuredMetafields(options);
+    await deleteUnstructuredMetafields({ ...options, shop });
   });
 
 program.parse(process.argv);
