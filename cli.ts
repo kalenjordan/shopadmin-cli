@@ -240,13 +240,17 @@ program
     }
   });
 
-// Product definitions command with subcommands
-const productDefinitions = program
-  .command('product-definitions')
-  .alias('pd')
-  .description('Manage product metafield definitions');
+// Product command with subcommands
+const product = program
+  .command('product')
+  .description('Manage product data');
 
-productDefinitions
+// Product metafields subcommand
+const productMetafields = product
+  .command('metafields')
+  .description('Manage product metafields');
+
+productMetafields
   .command('delete-unstructured')
   .description('Delete metafields without definitions')
   .option('-v, --verbose', 'Show all GraphQL queries and responses')
