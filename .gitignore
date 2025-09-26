@@ -35,5 +35,5 @@ temp/
 *.tmp
 
 # User configuration (contains sensitive tokens)
-~/shopify-shops.js
-shopify-shops.js
+~/shopadmin.config.ts
+shopadmin.config.ts

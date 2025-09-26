@@ -3,7 +3,7 @@ import path from 'path';
 import os from 'os';
 import { Shop, ShopsConfig } from './types';
 
-const CONFIG_FILE_NAME = 'shopify-shops.js';
+const CONFIG_FILE_NAME = 'shopadmin.config.ts';
 const CONFIG_FILE_PATH = path.join(os.homedir(), CONFIG_FILE_NAME);
 
 function getDefaultConfig(): ShopsConfig {
@@ -18,8 +18,10 @@ export function loadShops(): ShopsConfig {
       return getDefaultConfig();
     }
 
-    delete require.cache[CONFIG_FILE_PATH];
-    const config = require(CONFIG_FILE_PATH);
+    const fileContent = fs.readFileSync(CONFIG_FILE_PATH, 'utf8');
+    // Parse the TypeScript export default syntax
+    const jsonContent = fileContent.replace(/^export default /, '').replace(/;$/, '');
+    const config = JSON.parse(jsonContent);
     return config as ShopsConfig;
   } catch (error) {
     console.error('Error loading shops config:', error);
@@ -28,8 +30,8 @@ export function loadShops(): ShopsConfig {
 }
 
 export function saveShops(config: ShopsConfig): void {
-  const jsContent = `module.exports = ${JSON.stringify(config, null, 2)};`;
-  fs.writeFileSync(CONFIG_FILE_PATH, jsContent, 'utf8');
+  const tsContent = `export default ${JSON.stringify(config, null, 2)};`;
+  fs.writeFileSync(CONFIG_FILE_PATH, tsContent, 'utf8');
 }
 
 export function addShop(name: string, url: string, accessToken: string): void {
