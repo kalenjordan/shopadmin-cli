@@ -35,21 +35,40 @@ npx tsx cli.ts list
 npx tsx cli.ts remove -n "Store Name"
 ```
 
-#### Set default shop
+#### Set default shop for current directory
 ```bash
-npx tsx cli.ts default-shop -n "Store Name"
+npx tsx cli.ts default
+```
+
+#### Get shop information
+```bash
+npx tsx cli.ts info [-s "Store Name"]
 ```
 
 ### Metafield Operations
 
-#### Delete unstructured metafields
+#### Delete unstructured metafields (products or variants)
+Delete unstructured product metafields:
 ```bash
-npx tsx cli.ts delete-unstructured-metafields -n "Store Name"
+npx tsx cli.ts metafield delete-unstructured [-s "Store Name"]
+```
+
+Delete unstructured variant metafields:
+```bash
+npx tsx cli.ts metafield delete-unstructured --variants [-s "Store Name"]
 ```
 
 With force option (no prompt):
 ```bash
-npx tsx cli.ts delete-unstructured-metafields -n "Store Name" --force
+npx tsx cli.ts metafield delete-unstructured --force [-s "Store Name"]
+npx tsx cli.ts metafield delete-unstructured --variants --force [-s "Store Name"]
+```
+
+### Product Operations
+
+#### Delete unstructured product metafields (legacy)
+```bash
+npx tsx cli.ts product metafields delete-unstructured [-s "Store Name"]
 ```
 
 ## Configuration

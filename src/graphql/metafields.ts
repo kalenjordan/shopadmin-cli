@@ -30,6 +30,42 @@ export const GET_PRODUCTS_WITH_UNSTRUCTURED_METAFIELDS = `
   }
 `;
 
+export const GET_VARIANTS_WITH_UNSTRUCTURED_METAFIELDS = `
+  query GetVariantsWithUnstructuredMetafields($cursor: String) {
+    productVariants(first: 100, after: $cursor) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      edges {
+        node {
+          id
+          title
+          sku
+          product {
+            title
+            handle
+          }
+          metafields(first: 250) {
+            edges {
+              node {
+                id
+                namespace
+                key
+                value
+                type
+                definition {
+                  id
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
 export const CREATE_METAFIELD_DEFINITION = `
   mutation CreateMetafieldDefinition($definition: MetafieldDefinitionInput!) {
     metafieldDefinitionCreate(definition: $definition) {
@@ -63,12 +99,12 @@ export const DELETE_METAFIELD_DEFINITION = `
 `;
 
 export const GET_METAFIELD_DEFINITIONS = `
-  query GetMetafieldDefinitions($namespace: String!, $key: String!) {
+  query GetMetafieldDefinitions($namespace: String!, $key: String!, $ownerType: MetafieldOwnerType!) {
     metafieldDefinitions(
       first: 1,
       namespace: $namespace,
       key: $key,
-      ownerType: PRODUCT
+      ownerType: $ownerType
     ) {
       edges {
         node {

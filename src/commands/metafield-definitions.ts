@@ -3,6 +3,7 @@ import { createShopifyClient } from '../shopify-client';
 import { Shop } from '../types';
 import {
   GET_PRODUCTS_WITH_UNSTRUCTURED_METAFIELDS,
+  GET_VARIANTS_WITH_UNSTRUCTURED_METAFIELDS,
   CREATE_METAFIELD_DEFINITION,
   DELETE_METAFIELD_DEFINITION,
   GET_METAFIELD_DEFINITIONS,
@@ -13,6 +14,7 @@ interface CommandOptions {
   verbose?: boolean;
   force?: boolean;
   shop: Shop;
+  resourceType?: 'product' | 'variant';
 }
 
 interface ProcessedMetafield {
@@ -25,7 +27,8 @@ interface ProcessedMetafield {
 }
 
 export async function deleteUnstructuredMetafields(options: CommandOptions) {
-  const { verbose = false, force = false, shop } = options;
+  const { verbose = false, force = false, shop, resourceType = 'product' } = options;
+  const isVariant = resourceType === 'variant';
 
   try {
     const client = createShopifyClient(shop);
@@ -37,10 +40,10 @@ export async function deleteUnstructuredMetafields(options: CommandOptions) {
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
 
-    console.log('\nScanning for products with unstructured metafields...\n');
+    console.log(`\nScanning for ${isVariant ? 'variants' : 'products'} with unstructured metafields...\n`);
 
     let deletedCount = 0;
-    let totalProductsScanned = 0;
+    let totalResourcesScanned = 0;
     const deletedMetafields = new Set<string>();
     let cursor: string | null = null;
     let shouldRestartScan = false;
@@ -51,17 +54,18 @@ export async function deleteUnstructuredMetafields(options: CommandOptions) {
       if (shouldRestartScan) {
         cursor = null;
         shouldRestartScan = false;
-        totalProductsScanned = 0;
+        totalResourcesScanned = 0;
         console.log('\nRestarting scan from beginning after deletion...\n');
       }
 
       if (verbose) {
-        console.log('\n--- Fetching batch of products ---');
+        console.log(`\n--- Fetching batch of ${isVariant ? 'variants' : 'products'} ---`);
         console.log('Cursor:', cursor || 'start');
       }
 
-      // Fetch batch of products
-      const response = await client.request(GET_PRODUCTS_WITH_UNSTRUCTURED_METAFIELDS, {
+      // Fetch batch of resources
+      const query = isVariant ? GET_VARIANTS_WITH_UNSTRUCTURED_METAFIELDS : GET_PRODUCTS_WITH_UNSTRUCTURED_METAFIELDS;
+      const response = await client.request(query, {
         variables: { cursor }
       });
 
@@ -97,46 +101,48 @@ export async function deleteUnstructuredMetafields(options: CommandOptions) {
         throw new Error('GraphQL query failed: ' + errorMessages);
       }
 
-      if (!response.data?.products?.edges?.length) {
-        console.log('\n✅ No more products to process.');
+      const dataKey = isVariant ? 'productVariants' : 'products';
+      if (!response.data?.[dataKey]?.edges?.length) {
+        console.log(`\n✅ No more ${isVariant ? 'variants' : 'products'} to process.`);
         break;
       }
 
-      const products = response.data.products.edges;
-      const batchSize = products.length;
-      totalProductsScanned += batchSize;
+      const resources = response.data[dataKey].edges;
+      const batchSize = resources.length;
+      totalResourcesScanned += batchSize;
 
       // Show progress
-      process.stdout.write(`\rScanned ${totalProductsScanned} products...`);
+      process.stdout.write(`\rScanned ${totalResourcesScanned} ${isVariant ? 'variants' : 'products'}...`);
 
-      // Look for any product with unstructured metafields
-      let foundUnstructuredProduct = null;
+      // Look for any resource with unstructured metafields
+      let foundUnstructuredResource = null;
 
-      for (const edge of products) {
-        const product = edge.node;
+      for (const edge of resources) {
+        const resource = edge.node;
 
         // Find unstructured metafields (those without definitions)
-        const unstructuredMetafields = product.metafields.edges
+        const unstructuredMetafields = resource.metafields.edges
           .filter((mf: any) => !mf.node.definition);
 
         if (unstructuredMetafields.length > 0) {
-          foundUnstructuredProduct = {
-            product,
+          foundUnstructuredResource = {
+            resource,
             unstructuredMetafields: unstructuredMetafields.map((mf: any) => ({
               ...mf.node,
-              productTitle: product.title,
-              productHandle: product.handle
+              resourceTitle: isVariant ? `${resource.product.title} - ${resource.title || resource.sku}` : resource.title,
+              resourceHandle: isVariant ? resource.product.handle : resource.handle
             }))
           };
-          break; // Stop at first product with unstructured metafields
+          break; // Stop at first resource with unstructured metafields
         }
       }
 
-      // If we found a product with unstructured metafields, process it
-      if (foundUnstructuredProduct) {
-        const { product, unstructuredMetafields } = foundUnstructuredProduct;
+      // If we found a resource with unstructured metafields, process it
+      if (foundUnstructuredResource) {
+        const { resource, unstructuredMetafields } = foundUnstructuredResource;
+        const displayTitle = isVariant ? `${resource.product.title} - ${resource.title || resource.sku}` : resource.title;
 
-        console.log(`\n\nFound ${unstructuredMetafields.length} unstructured metafield(s) in product: "${product.title}"`);
+        console.log(`\n\nFound ${unstructuredMetafields.length} unstructured metafield(s) in ${isVariant ? 'variant' : 'product'}: "${displayTitle}"`);
 
         // Process each unstructured metafield
         for (const metafield of unstructuredMetafields) {
@@ -151,7 +157,7 @@ export async function deleteUnstructuredMetafields(options: CommandOptions) {
           console.log('\n────────────────────────────────────────────────────────────────────────────────');
           console.log(`\nMetafield: ${metafieldKey}`);
           console.log(`Type: ${metafield.type}`);
-          console.log(`Product: "${metafield.productTitle}" (${metafield.productHandle})`);
+          console.log(`${isVariant ? 'Variant' : 'Product'}: "${metafield.resourceTitle}" (${metafield.resourceHandle})`);
 
           const valuePreview = metafield.value.length > 200
             ? metafield.value.substring(0, 200) + '...'
@@ -168,7 +174,7 @@ export async function deleteUnstructuredMetafields(options: CommandOptions) {
               {
                 type: 'confirm',
                 name: 'shouldDelete',
-                message: `Delete ALL instances of ${metafieldKey} across ALL products?`,
+                message: `Delete ALL instances of ${metafieldKey} across ALL ${isVariant ? 'variants' : 'products'}?`,
                 default: false
               }
             ]);
@@ -183,7 +189,8 @@ export async function deleteUnstructuredMetafields(options: CommandOptions) {
               const existingDefResponse = await client.request(GET_METAFIELD_DEFINITIONS, {
                 variables: {
                   namespace: metafield.namespace,
-                  key: metafield.key
+                  key: metafield.key,
+                  ownerType: isVariant ? 'PRODUCTVARIANT' : 'PRODUCT'
                 }
               });
 
@@ -223,7 +230,7 @@ export async function deleteUnstructuredMetafields(options: CommandOptions) {
                       key: metafield.key,
                       name: `${metafield.namespace} ${metafield.key}`,
                       type: mappedType,
-                      ownerType: 'PRODUCT'
+                      ownerType: isVariant ? 'PRODUCTVARIANT' : 'PRODUCT'
                     }
                   }
                 });
@@ -268,11 +275,11 @@ export async function deleteUnstructuredMetafields(options: CommandOptions) {
       }
 
       // Check if there are more pages
-      if (response.data.products.pageInfo.hasNextPage) {
-        cursor = response.data.products.pageInfo.endCursor;
+      if (response.data[dataKey].pageInfo.hasNextPage) {
+        cursor = response.data[dataKey].pageInfo.endCursor;
       } else {
         // No more pages and no unstructured metafields found
-        console.log('\n\n✅ Finished scanning all products.');
+        console.log(`\n\n✅ Finished scanning all ${isVariant ? 'variants' : 'products'}.`);
         break;
       }
     }
@@ -280,7 +287,7 @@ export async function deleteUnstructuredMetafields(options: CommandOptions) {
     // Summary
     console.log('\n' + '═'.repeat(80));
     console.log('\nSummary:');
-    console.log(`- Scanned ${totalProductsScanned} product(s)`);
+    console.log(`- Scanned ${totalResourcesScanned} ${isVariant ? 'variant(s)' : 'product(s)'}`);
     console.log(`- Deleted ${deletedCount} metafield type(s)`);
 
     if (deletedMetafields.size > 0) {

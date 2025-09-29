@@ -261,8 +261,30 @@ productMetafields
     const shop = await selectShop(options.shop);
 
     // Import dynamically to avoid loading everything at startup
-    const { deleteUnstructuredMetafields } = await import('./src/commands/product-definitions');
-    await deleteUnstructuredMetafields({ ...options, shop });
+    const { deleteUnstructuredMetafields } = await import('./src/commands/metafield-definitions');
+    await deleteUnstructuredMetafields({ ...options, shop, resourceType: 'product' });
+  });
+
+// Metafield command with subcommands
+const metafield = program
+  .command('metafield')
+  .description('Manage metafields');
+
+metafield
+  .command('delete-unstructured')
+  .description('Delete metafields without definitions')
+  .option('--variants', 'Delete variant metafields instead of product metafields')
+  .option('-v, --verbose', 'Show all GraphQL queries and responses')
+  .option('-f, --force', 'Delete all unstructured metafields without prompting')
+  .option('-s, --shop <name>', 'Shop name to use (overrides default)')
+  .action(async (options) => {
+    // Select shop at CLI level
+    const shop = await selectShop(options.shop);
+
+    // Import dynamically to avoid loading everything at startup
+    const { deleteUnstructuredMetafields } = await import('./src/commands/metafield-definitions');
+    const resourceType = options.variants ? 'variant' : 'product';
+    await deleteUnstructuredMetafields({ ...options, shop, resourceType });
   });
 
 program.parse(process.argv);
