@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 
 // Generate a consistent color for a shop name based on its hash
-export function getShopColor(shopName: string): chalk.Chalk {
+export function getShopColor(shopName: string): typeof chalk {
   // Calculate a hash from the shop name
   let hash = 0;
   for (let i = 0; i < shopName.length; i++) {

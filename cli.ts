@@ -5,40 +5,17 @@ import inquirer from 'inquirer';
 import { addShop, listShops, removeShop, getShop } from './src/storage';
 import { selectShop } from './src/shopify-client';
 import { formatShopName, formatShopInfo } from './src/utils/colors';
+import { loadLocalConfig, saveLocalConfig, getLocalConfigPath } from './src/utils/config';
+import { ASCII_ART, LINE_SEPARATORS } from './src/constants';
 import chalk from 'chalk';
-import fs from 'fs';
-import path from 'path';
-
-const asciiArt = `
-  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-  ░                                                                                ░
-  ░  ██████╗ ██╗  ██╗ ██████╗ ██████╗     █████╗ ██████╗ ███╗   ███╗██╗███╗   ██╗  ░
-  ░  ██╔════╝██║  ██║██╔═══██╗██╔══██╗   ██╔══██╗██╔══██╗████╗ ████║██║████╗  ██║  ░
-  ░  ███████╗███████║██║   ██║██████╔╝   ███████║██║  ██║██╔████╔██║██║██╔██╗ ██║  ░
-  ░  ╚════██║██╔══██║██║   ██║██╔═══╝    ██╔══██║██║  ██║██║╚██╔╝██║██║██║╚██╗██║  ░
-  ░  ███████║██║  ██║╚██████╔╝██║        ██║  ██║██████╔╝██║ ╚═╝ ██║██║██║ ╚████║  ░
-  ░  ╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═╝        ╚═╝  ╚═╝╚═════╝ ╚═╝     ╚═╝╚═╝╚═╝  ╚═══╝  ░
-  ░                                                                                ░
-  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-`;
 
 // Load local config synchronously at startup
-let defaultShopFromConfig: string | undefined;
-const localConfigPath = path.join(process.cwd(), '.shopadmin.config.ts');
-if (fs.existsSync(localConfigPath)) {
-  try {
-    // Use require for synchronous loading of TypeScript config
-    const config = require(localConfigPath);
-    defaultShopFromConfig = config.default?.defaultShop || config.defaultShop;
-  } catch (error) {
-    // Silently fail if config can't be loaded
-  }
-}
+const { defaultShop: defaultShopFromConfig } = loadLocalConfig();
 
 const program = new Command();
 
 // Build description with default shop if available
-let description = `${asciiArt}\nCLI for managing Shopify admin operations`;
+let description = `${ASCII_ART}\nCLI for managing Shopify admin operations`;
 
 if (defaultShopFromConfig) {
   const shop = getShop(defaultShopFromConfig);
@@ -124,19 +101,10 @@ program
       }
 
       // Get the default shop from local config
-      let defaultShopName: string | undefined;
-      const localConfigPath = path.join(process.cwd(), '.shopadmin.config.ts');
-      if (fs.existsSync(localConfigPath)) {
-        try {
-          const config = require(localConfigPath);
-          defaultShopName = config.default?.defaultShop || config.defaultShop;
-        } catch (error) {
-          // Silently fail
-        }
-      }
+      const { defaultShop: defaultShopName } = loadLocalConfig();
 
       console.log('\nConfigured Shopify Stores:');
-      console.log('─'.repeat(60));
+      console.log(LINE_SEPARATORS.THIN);
       shops.forEach((shop, index) => {
         const isDefault = shop.name === defaultShopName;
         const defaultBadge = isDefault ? chalk.inverse(' DEFAULT ') + ' ' : '';
@@ -196,17 +164,7 @@ program
       }
 
       // Check if there's already a local config
-      const localConfigPath = path.join(process.cwd(), '.shopadmin.config.ts');
-      let currentDefault: string | undefined;
-
-      if (fs.existsSync(localConfigPath)) {
-        try {
-          const config = require(localConfigPath);
-          currentDefault = config.default?.defaultShop || config.defaultShop;
-        } catch (error) {
-          // Silently fail
-        }
-      }
+      const { defaultShop: currentDefault } = loadLocalConfig();
 
       // Prompt for shop selection
       const { shopName } = await inquirer.prompt([
@@ -224,15 +182,10 @@ program
       ]);
 
       // Save the local config
-      const localConfig = {
-        defaultShop: shopName
-      };
-
-      const content = `export default ${JSON.stringify(localConfig, null, 2)};`;
-      fs.writeFileSync(localConfigPath, content, 'utf8');
+      saveLocalConfig({ defaultShop: shopName });
 
       console.log(`\n✓ Set default shop to ${formatShopName(shopName)}`);
-      console.log(`  Configuration saved to: ${chalk.gray(localConfigPath)}`);
+      console.log(`  Configuration saved to: ${chalk.gray(getLocalConfigPath())}`);
 
     } catch (error) {
       console.error('Error setting default shop:', error);
@@ -257,10 +210,7 @@ productMetafields
   .option('-f, --force', 'Delete all unstructured metafields without prompting')
   .option('-s, --shop <name>', 'Shop name to use (overrides default)')
   .action(async (options) => {
-    // Select shop at CLI level
     const shop = await selectShop(options.shop);
-
-    // Import dynamically to avoid loading everything at startup
     const { deleteUnstructuredMetafields } = await import('./src/commands/metafield-definitions');
     await deleteUnstructuredMetafields({ ...options, shop, resourceType: 'product' });
   });
@@ -278,10 +228,7 @@ metafield
   .option('-f, --force', 'Delete all unstructured metafields without prompting')
   .option('-s, --shop <name>', 'Shop name to use (overrides default)')
   .action(async (options) => {
-    // Select shop at CLI level
     const shop = await selectShop(options.shop);
-
-    // Import dynamically to avoid loading everything at startup
     const { deleteUnstructuredMetafields } = await import('./src/commands/metafield-definitions');
     const resourceType = options.variants ? 'variant' : 'product';
     await deleteUnstructuredMetafields({ ...options, shop, resourceType });

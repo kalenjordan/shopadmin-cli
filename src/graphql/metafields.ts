@@ -1,4 +1,4 @@
-export const GET_PRODUCTS_WITH_UNSTRUCTURED_METAFIELDS = `
+export const GET_PRODUCTS_WITH_UNSTRUCTURED_METAFIELDS: string = `
   query GetProductsWithUnstructuredMetafields($cursor: String) {
     products(first: 100, after: $cursor) {
       pageInfo {
@@ -30,7 +30,7 @@ export const GET_PRODUCTS_WITH_UNSTRUCTURED_METAFIELDS = `
   }
 `;
 
-export const GET_VARIANTS_WITH_UNSTRUCTURED_METAFIELDS = `
+export const GET_VARIANTS_WITH_UNSTRUCTURED_METAFIELDS: string = `
   query GetVariantsWithUnstructuredMetafields($cursor: String) {
     productVariants(first: 100, after: $cursor) {
       pageInfo {
@@ -66,7 +66,7 @@ export const GET_VARIANTS_WITH_UNSTRUCTURED_METAFIELDS = `
   }
 `;
 
-export const CREATE_METAFIELD_DEFINITION = `
+export const CREATE_METAFIELD_DEFINITION: string = `
   mutation CreateMetafieldDefinition($definition: MetafieldDefinitionInput!) {
     metafieldDefinitionCreate(definition: $definition) {
       createdDefinition {
@@ -83,7 +83,7 @@ export const CREATE_METAFIELD_DEFINITION = `
   }
 `;
 
-export const DELETE_METAFIELD_DEFINITION = `
+export const DELETE_METAFIELD_DEFINITION: string = `
   mutation DeleteMetafieldDefinition($id: ID!, $deleteAllAssociatedMetafields: Boolean!) {
     metafieldDefinitionDelete(
       id: $id,
@@ -98,7 +98,7 @@ export const DELETE_METAFIELD_DEFINITION = `
   }
 `;
 
-export const GET_METAFIELD_DEFINITIONS = `
+export const GET_METAFIELD_DEFINITIONS: string = `
   query GetMetafieldDefinitions($namespace: String!, $key: String!, $ownerType: MetafieldOwnerType!) {
     metafieldDefinitions(
       first: 1,
@@ -118,17 +118,11 @@ export const GET_METAFIELD_DEFINITIONS = `
   }
 `;
 
+// Legacy interfaces - consider migrating to types/graphql.ts
 export interface UnstructuredMetafield {
   id: string;
   namespace: string;
   key: string;
   value: string;
   type: string;
-}
-
-export interface ProductWithMetafields {
-  id: string;
-  title: string;
-  handle: string;
-  unstructuredMetafields: UnstructuredMetafield[];
 }

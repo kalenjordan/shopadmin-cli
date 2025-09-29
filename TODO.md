@@ -1,2 +1,2 @@
-- Top level shop command that covers add, list, default, info
+- Top level shop command that covers add, list, default, info as subcommands
 - Typescript cleanup

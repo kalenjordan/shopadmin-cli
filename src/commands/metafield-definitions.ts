@@ -6,29 +6,273 @@ import {
   GET_VARIANTS_WITH_UNSTRUCTURED_METAFIELDS,
   CREATE_METAFIELD_DEFINITION,
   DELETE_METAFIELD_DEFINITION,
-  GET_METAFIELD_DEFINITIONS,
-  UnstructuredMetafield
+  GET_METAFIELD_DEFINITIONS
 } from '../graphql/metafields';
+import {
+  ProductsResponse,
+  VariantsResponse,
+  Metafield,
+  Product,
+  ProductVariant,
+  ResourceType,
+  OwnerType,
+  MetafieldDefinitionsResponse,
+  CreateMetafieldDefinitionResponse,
+  DeleteMetafieldDefinitionResponse
+} from '../types/graphql';
+import { parseGraphQLErrors, handleError } from '../utils/errors';
+import { DELAYS, LINE_SEPARATORS, TYPE_MAPPINGS } from '../constants';
 
 interface CommandOptions {
   verbose?: boolean;
   force?: boolean;
   shop: Shop;
-  resourceType?: 'product' | 'variant';
+  resourceType?: ResourceType;
 }
 
-interface ProcessedMetafield {
-  namespace: string;
-  key: string;
-  type: string;
-  value: string;
-  productTitle: string;
-  productHandle: string;
+interface UnstructuredResource {
+  resource: Product | ProductVariant;
+  metafields: ProcessedMetafield[];
 }
 
-export async function deleteUnstructuredMetafields(options: CommandOptions) {
+interface ProcessedMetafield extends Metafield {
+  resourceTitle: string;
+  resourceHandle: string;
+}
+
+interface ScanResult {
+  foundResource: UnstructuredResource | null;
+  hasNextPage: boolean;
+  nextCursor: string | null;
+  batchSize: number;
+}
+
+function getOwnerType(resourceType: ResourceType): OwnerType {
+  return resourceType === 'variant' ? 'PRODUCTVARIANT' : 'PRODUCT';
+}
+
+function getResourceTitle(resource: Product | ProductVariant, isVariant: boolean): string {
+  if (isVariant) {
+    const variant = resource as ProductVariant;
+    return `${variant.product.title} - ${variant.title || variant.sku}`;
+  }
+  return (resource as Product).title;
+}
+
+function getResourceHandle(resource: Product | ProductVariant, isVariant: boolean): string {
+  if (isVariant) {
+    return (resource as ProductVariant).product.handle;
+  }
+  return (resource as Product).handle;
+}
+
+async function scanBatch(
+  client: any,
+  cursor: string | null,
+  resourceType: ResourceType,
+  verbose: boolean
+): Promise<ScanResult> {
+  const isVariant = resourceType === 'variant';
+
+  if (verbose) {
+    console.log(`\n--- Fetching batch of ${isVariant ? 'variants' : 'products'} ---`);
+    console.log('Cursor:', cursor || 'start');
+  }
+
+  const query = isVariant ? GET_VARIANTS_WITH_UNSTRUCTURED_METAFIELDS : GET_PRODUCTS_WITH_UNSTRUCTURED_METAFIELDS;
+  const response = await client.request(query, { variables: { cursor } }) as (ProductsResponse | VariantsResponse);
+
+  if (verbose) {
+    console.log('Response:', JSON.stringify(response, null, 2));
+  }
+
+  if (response.errors) {
+    const errorInfo = parseGraphQLErrors(response.errors);
+    throw new Error(errorInfo.message);
+  }
+
+  const data = isVariant
+    ? (response as VariantsResponse).data?.productVariants
+    : (response as ProductsResponse).data?.products;
+
+  if (!data?.edges?.length) {
+    return {
+      foundResource: null,
+      hasNextPage: false,
+      nextCursor: null,
+      batchSize: 0
+    };
+  }
+
+  // Look for first resource with unstructured metafields
+  for (const edge of data.edges) {
+    const resource = edge.node;
+    const unstructuredMetafields = resource.metafields.edges
+      .filter((mf: { node: Metafield }) => !mf.node.definition)
+      .map((mf: { node: Metafield }) => ({
+        ...mf.node,
+        resourceTitle: getResourceTitle(resource, isVariant),
+        resourceHandle: getResourceHandle(resource, isVariant)
+      }));
+
+    if (unstructuredMetafields.length > 0) {
+      return {
+        foundResource: {
+          resource,
+          metafields: unstructuredMetafields
+        },
+        hasNextPage: data.pageInfo.hasNextPage,
+        nextCursor: data.pageInfo.endCursor,
+        batchSize: data.edges.length
+      };
+    }
+  }
+
+  return {
+    foundResource: null,
+    hasNextPage: data.pageInfo.hasNextPage,
+    nextCursor: data.pageInfo.endCursor,
+    batchSize: data.edges.length
+  };
+}
+
+async function checkExistingDefinition(
+  client: any,
+  namespace: string,
+  key: string,
+  ownerType: OwnerType
+): Promise<string | null> {
+  const response = await client.request(GET_METAFIELD_DEFINITIONS, {
+    variables: { namespace, key, ownerType }
+  }) as MetafieldDefinitionsResponse;
+
+  if (response.data.metafieldDefinitions.edges.length > 0) {
+    return response.data.metafieldDefinitions.edges[0].node.id;
+  }
+  return null;
+}
+
+async function createTemporaryDefinition(
+  client: any,
+  metafield: ProcessedMetafield,
+  ownerType: OwnerType
+): Promise<string> {
+  const mappedType = TYPE_MAPPINGS[metafield.type] || metafield.type;
+
+  const response = await client.request(CREATE_METAFIELD_DEFINITION, {
+    variables: {
+      definition: {
+        namespace: metafield.namespace,
+        key: metafield.key,
+        name: `${metafield.namespace} ${metafield.key}`,
+        type: mappedType,
+        ownerType
+      }
+    }
+  }) as CreateMetafieldDefinitionResponse;
+
+  if (response.data.metafieldDefinitionCreate.userErrors.length > 0) {
+    const errors = response.data.metafieldDefinitionCreate.userErrors;
+    throw new Error(`Failed to create definition: ${errors.map(e => e.message).join(', ')}`);
+  }
+
+  return response.data.metafieldDefinitionCreate.createdDefinition.id;
+}
+
+async function deleteDefinitionAndMetafields(
+  client: any,
+  definitionId: string
+): Promise<void> {
+  const response = await client.request(DELETE_METAFIELD_DEFINITION, {
+    variables: {
+      id: definitionId,
+      deleteAllAssociatedMetafields: true
+    }
+  }) as DeleteMetafieldDefinitionResponse;
+
+  if (response.data.metafieldDefinitionDelete.userErrors.length > 0) {
+    const errors = response.data.metafieldDefinitionDelete.userErrors;
+    throw new Error(`Failed to delete definition: ${errors.map(e => e.message).join(', ')}`);
+  }
+}
+
+async function processMetafield(
+  client: any,
+  metafield: ProcessedMetafield,
+  ownerType: OwnerType,
+  force: boolean,
+  isVariant: boolean
+): Promise<boolean> {
+  const metafieldKey = `${metafield.namespace}:${metafield.key}`;
+
+  console.log('\n' + LINE_SEPARATORS.SECTION);
+  console.log(`\nMetafield: ${metafieldKey}`);
+  console.log(`Type: ${metafield.type}`);
+  console.log(`${isVariant ? 'Variant' : 'Product'}: "${metafield.resourceTitle}" (${metafield.resourceHandle})`);
+
+  const valuePreview = metafield.value.length > 200
+    ? metafield.value.substring(0, 200) + '...'
+    : metafield.value;
+  console.log(`Value: ${valuePreview}\n`);
+
+  let shouldDelete = force;
+
+  if (!force) {
+    const response = await inquirer.prompt([{
+      type: 'confirm',
+      name: 'shouldDelete',
+      message: `Delete ALL instances of ${metafieldKey} across ALL ${isVariant ? 'variants' : 'products'}?`,
+      default: false
+    }]);
+    shouldDelete = response.shouldDelete;
+  } else {
+    console.log(`🔥 Force mode: Automatically deleting ${metafieldKey}`);
+  }
+
+  if (!shouldDelete) {
+    console.log('Skipped.');
+    return false;
+  }
+
+  console.log(`\nDeleting all instances of ${metafieldKey}...`);
+
+  try {
+    // Check for existing definition or create temporary one
+    let definitionId = await checkExistingDefinition(client, metafield.namespace, metafield.key, ownerType);
+
+    if (definitionId) {
+      console.log('Found existing definition, will delete it along with all metafields...');
+    } else {
+      definitionId = await createTemporaryDefinition(client, metafield, ownerType);
+      console.log('Created temporary definition...');
+    }
+
+    // Delete the definition and all associated metafields
+    await deleteDefinitionAndMetafields(client, definitionId);
+    console.log(`✓ Successfully deleted all instances of ${metafieldKey}`);
+    return true;
+  } catch (error) {
+    console.error(`Error processing ${metafieldKey}:`, error);
+    return false;
+  }
+}
+
+function printSummary(totalScanned: number, deletedCount: number, deletedMetafields: Set<string>, isVariant: boolean): void {
+  console.log('\n' + LINE_SEPARATORS.THICK);
+  console.log('\nSummary:');
+  console.log(`- Scanned ${totalScanned} ${isVariant ? 'variant(s)' : 'product(s)'}`);
+  console.log(`- Deleted ${deletedCount} metafield type(s)`);
+
+  if (deletedMetafields.size > 0) {
+    console.log('\nDeleted metafields:');
+    deletedMetafields.forEach(key => console.log(`  - ${key}`));
+  }
+}
+
+export async function deleteUnstructuredMetafields(options: CommandOptions): Promise<void> {
   const { verbose = false, force = false, shop, resourceType = 'product' } = options;
   const isVariant = resourceType === 'variant';
+  const ownerType = getOwnerType(resourceType);
 
   try {
     const client = createShopifyClient(shop);
@@ -36,8 +280,7 @@ export async function deleteUnstructuredMetafields(options: CommandOptions) {
     if (force) {
       console.log('\n⚠️  FORCE MODE ENABLED - All unstructured metafields will be deleted automatically!');
       console.log('    This action cannot be undone. Press Ctrl+C to cancel.\n');
-      // Give user a moment to cancel if they want
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise(resolve => setTimeout(resolve, DELAYS.FORCE_MODE_WARNING));
     }
 
     console.log(`\nScanning for ${isVariant ? 'variants' : 'products'} with unstructured metafields...\n`);
@@ -48,9 +291,7 @@ export async function deleteUnstructuredMetafields(options: CommandOptions) {
     let cursor: string | null = null;
     let shouldRestartScan = false;
 
-    // Keep processing until no more products
     while (true) {
-      // Reset cursor if we deleted something (to start fresh)
       if (shouldRestartScan) {
         cursor = null;
         shouldRestartScan = false;
@@ -58,260 +299,56 @@ export async function deleteUnstructuredMetafields(options: CommandOptions) {
         console.log('\nRestarting scan from beginning after deletion...\n');
       }
 
-      if (verbose) {
-        console.log(`\n--- Fetching batch of ${isVariant ? 'variants' : 'products'} ---`);
-        console.log('Cursor:', cursor || 'start');
-      }
-
-      // Fetch batch of resources
-      const query = isVariant ? GET_VARIANTS_WITH_UNSTRUCTURED_METAFIELDS : GET_PRODUCTS_WITH_UNSTRUCTURED_METAFIELDS;
-      const response = await client.request(query, {
-        variables: { cursor }
-      });
-
-      if (verbose) {
-        console.log('Response:', JSON.stringify(response, null, 2));
-      }
-
-      // Check for errors
-      if (response.errors) {
-        console.error('\n❌ GraphQL Errors:');
-
-        // Handle different error formats
-        let errorMessages = '';
-        if (Array.isArray(response.errors)) {
-          errorMessages = response.errors.map((err: any) => err.message || err).join(', ');
-        } else if (typeof response.errors === 'object') {
-          errorMessages = response.errors.message || JSON.stringify(response.errors);
-        } else {
-          errorMessages = String(response.errors);
-        }
-
-        if (errorMessages.toLowerCase().includes('access denied') ||
-            errorMessages.toLowerCase().includes('unauthorized') ||
-            errorMessages.toLowerCase().includes('invalid api key or access token')) {
-          console.error('🔐 Authentication Error: The access token for this shop is invalid or expired.');
-          console.error('   Please update the access token using: shopadmin add -n "' + shop.name + '"');
-        } else if (errorMessages.toLowerCase().includes('throttled')) {
-          console.error('⏱️  Rate Limit: API rate limit exceeded. Please wait a moment and try again.');
-        } else {
-          console.error('Full error details:', JSON.stringify(response.errors, null, 2));
-        }
-
-        throw new Error('GraphQL query failed: ' + errorMessages);
-      }
-
-      const dataKey = isVariant ? 'productVariants' : 'products';
-      if (!response.data?.[dataKey]?.edges?.length) {
-        console.log(`\n✅ No more ${isVariant ? 'variants' : 'products'} to process.`);
-        break;
-      }
-
-      const resources = response.data[dataKey].edges;
-      const batchSize = resources.length;
-      totalResourcesScanned += batchSize;
+      const scanResult = await scanBatch(client, cursor, resourceType, verbose);
+      totalResourcesScanned += scanResult.batchSize;
 
       // Show progress
-      process.stdout.write(`\rScanned ${totalResourcesScanned} ${isVariant ? 'variants' : 'products'}...`);
-
-      // Look for any resource with unstructured metafields
-      let foundUnstructuredResource = null;
-
-      for (const edge of resources) {
-        const resource = edge.node;
-
-        // Find unstructured metafields (those without definitions)
-        const unstructuredMetafields = resource.metafields.edges
-          .filter((mf: any) => !mf.node.definition);
-
-        if (unstructuredMetafields.length > 0) {
-          foundUnstructuredResource = {
-            resource,
-            unstructuredMetafields: unstructuredMetafields.map((mf: any) => ({
-              ...mf.node,
-              resourceTitle: isVariant ? `${resource.product.title} - ${resource.title || resource.sku}` : resource.title,
-              resourceHandle: isVariant ? resource.product.handle : resource.handle
-            }))
-          };
-          break; // Stop at first resource with unstructured metafields
-        }
+      if (scanResult.batchSize > 0) {
+        process.stdout.write(`\rScanned ${totalResourcesScanned} ${isVariant ? 'variants' : 'products'}...`);
       }
 
-      // If we found a resource with unstructured metafields, process it
-      if (foundUnstructuredResource) {
-        const { resource, unstructuredMetafields } = foundUnstructuredResource;
-        const displayTitle = isVariant ? `${resource.product.title} - ${resource.title || resource.sku}` : resource.title;
+      if (scanResult.foundResource) {
+        const { resource, metafields } = scanResult.foundResource;
+        const displayTitle = isVariant
+          ? getResourceTitle(resource, true)
+          : (resource as Product).title;
 
-        console.log(`\n\nFound ${unstructuredMetafields.length} unstructured metafield(s) in ${isVariant ? 'variant' : 'product'}: "${displayTitle}"`);
+        console.log(`\n\nFound ${metafields.length} unstructured metafield(s) in ${isVariant ? 'variant' : 'product'}: "${displayTitle}"`);
 
-        // Process each unstructured metafield
-        for (const metafield of unstructuredMetafields) {
+        for (const metafield of metafields) {
           const metafieldKey = `${metafield.namespace}:${metafield.key}`;
 
-          // Skip if we've already deleted this namespace:key combination
           if (deletedMetafields.has(metafieldKey)) {
             console.log(`  Skipping ${metafieldKey} (already deleted)`);
             continue;
           }
 
-          console.log('\n────────────────────────────────────────────────────────────────────────────────');
-          console.log(`\nMetafield: ${metafieldKey}`);
-          console.log(`Type: ${metafield.type}`);
-          console.log(`${isVariant ? 'Variant' : 'Product'}: "${metafield.resourceTitle}" (${metafield.resourceHandle})`);
+          const wasDeleted = await processMetafield(client, metafield, ownerType, force, isVariant);
 
-          const valuePreview = metafield.value.length > 200
-            ? metafield.value.substring(0, 200) + '...'
-            : metafield.value;
-          console.log(`Value: ${valuePreview}\n`);
-
-          let shouldDelete = false;
-
-          if (force) {
-            console.log(`🔥 Force mode: Automatically deleting ${metafieldKey}`);
-            shouldDelete = true;
-          } else {
-            const response = await inquirer.prompt([
-              {
-                type: 'confirm',
-                name: 'shouldDelete',
-                message: `Delete ALL instances of ${metafieldKey} across ALL ${isVariant ? 'variants' : 'products'}?`,
-                default: false
-              }
-            ]);
-            shouldDelete = response.shouldDelete;
-          }
-
-          if (shouldDelete) {
-            console.log(`\nDeleting all instances of ${metafieldKey}...`);
-
-            try {
-              // First check if a definition already exists
-              const existingDefResponse = await client.request(GET_METAFIELD_DEFINITIONS, {
-                variables: {
-                  namespace: metafield.namespace,
-                  key: metafield.key,
-                  ownerType: isVariant ? 'PRODUCTVARIANT' : 'PRODUCT'
-                }
-              });
-
-              let definitionId: string;
-
-              if (existingDefResponse.data.metafieldDefinitions.edges.length > 0) {
-                // Definition already exists
-                definitionId = existingDefResponse.data.metafieldDefinitions.edges[0].node.id;
-                console.log('Found existing definition, will delete it along with all metafields...');
-              } else {
-                // Map legacy types to current Shopify metafield types
-                const typeMapping: { [key: string]: string } = {
-                  'string': 'single_line_text_field',
-                  'integer': 'number_integer',
-                  'json_string': 'json',
-                  'boolean': 'boolean',
-                  'number_decimal': 'number_decimal',
-                  'number_integer': 'number_integer',
-                  'date': 'date',
-                  'date_time': 'date_time',
-                  'url': 'url',
-                  'color': 'color',
-                  'rating': 'rating',
-                  'multi_line_text_field': 'multi_line_text_field',
-                  'single_line_text_field': 'single_line_text_field',
-                  'json': 'json',
-                  // Add more mappings as needed
-                };
-
-                const mappedType = typeMapping[metafield.type] || metafield.type;
-
-                // Create a new definition
-                const createResponse = await client.request(CREATE_METAFIELD_DEFINITION, {
-                  variables: {
-                    definition: {
-                      namespace: metafield.namespace,
-                      key: metafield.key,
-                      name: `${metafield.namespace} ${metafield.key}`,
-                      type: mappedType,
-                      ownerType: isVariant ? 'PRODUCTVARIANT' : 'PRODUCT'
-                    }
-                  }
-                });
-
-                if (createResponse.data.metafieldDefinitionCreate.userErrors.length > 0) {
-                  console.error('Error creating definition:', createResponse.data.metafieldDefinitionCreate.userErrors);
-                  continue;
-                }
-
-                definitionId = createResponse.data.metafieldDefinitionCreate.createdDefinition.id;
-                console.log('Created temporary definition...');
-              }
-
-              // Delete the definition and all associated metafields
-              const deleteResponse = await client.request(DELETE_METAFIELD_DEFINITION, {
-                variables: {
-                  id: definitionId,
-                  deleteAllAssociatedMetafields: true
-                }
-              });
-
-              if (deleteResponse.data.metafieldDefinitionDelete.userErrors.length > 0) {
-                console.error('Error deleting definition:', deleteResponse.data.metafieldDefinitionDelete.userErrors);
-              } else {
-                console.log(`✓ Successfully deleted all instances of ${metafieldKey}`);
-                deletedMetafields.add(metafieldKey);
-                deletedCount++;
-                shouldRestartScan = true; // Restart scan after deletion
-              }
-            } catch (error) {
-              console.error(`Error processing ${metafieldKey}:`, error);
-            }
-          } else {
-            console.log('Skipped.');
+          if (wasDeleted) {
+            deletedMetafields.add(metafieldKey);
+            deletedCount++;
+            shouldRestartScan = true;
           }
         }
 
-        // If we deleted something, restart the scan from the beginning
         if (shouldRestartScan) {
-          continue; // This will restart with cursor = null
+          continue;
         }
       }
 
-      // Check if there are more pages
-      if (response.data[dataKey].pageInfo.hasNextPage) {
-        cursor = response.data[dataKey].pageInfo.endCursor;
-      } else {
-        // No more pages and no unstructured metafields found
+      if (!scanResult.hasNextPage) {
         console.log(`\n\n✅ Finished scanning all ${isVariant ? 'variants' : 'products'}.`);
         break;
       }
+
+      cursor = scanResult.nextCursor;
     }
 
-    // Summary
-    console.log('\n' + '═'.repeat(80));
-    console.log('\nSummary:');
-    console.log(`- Scanned ${totalResourcesScanned} ${isVariant ? 'variant(s)' : 'product(s)'}`);
-    console.log(`- Deleted ${deletedCount} metafield type(s)`);
+    printSummary(totalResourcesScanned, deletedCount, deletedMetafields, isVariant);
 
-    if (deletedMetafields.size > 0) {
-      console.log('\nDeleted metafields:');
-      deletedMetafields.forEach(key => console.log(`  - ${key}`));
-    }
-
-  } catch (error: any) {
-    // Check for specific error types
-    if (error.message?.includes('Authentication Error') ||
-        error.message?.toLowerCase().includes('unauthorized') ||
-        error.message?.toLowerCase().includes('access denied')) {
-      // Authentication error already formatted above
-    } else if (error.message?.includes('Rate Limit')) {
-      // Rate limit error already formatted above
-    } else if (error.message?.includes('API version not configured')) {
-      // Config error already has good message
-      console.error('\n❌', error.message);
-    } else {
-      console.error('\n❌ Error:', error.message || error);
-      if (verbose) {
-        console.error('\nFull error:', error);
-      }
-    }
+  } catch (error) {
+    handleError(error, verbose);
     process.exit(1);
   }
 }
