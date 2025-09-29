@@ -20,29 +20,31 @@ npx tsx cli.ts [command] [options]
 
 ### Store Management
 
+All store management commands are under the `shop` command:
+
 #### Add a store
 ```bash
-npx tsx cli.ts add -n "Store Name" -u "https://store.myshopify.com" -t "admin-api-token"
+npx tsx cli.ts shop add -s "your-store" -t "admin-api-token" [-n "Store Name"]
 ```
 
 #### List all stores
 ```bash
-npx tsx cli.ts list
+npx tsx cli.ts shop list
 ```
 
 #### Remove a store
 ```bash
-npx tsx cli.ts remove -n "Store Name"
+npx tsx cli.ts shop remove -n "Store Name"
 ```
 
 #### Set default shop for current directory
 ```bash
-npx tsx cli.ts default
+npx tsx cli.ts shop default
 ```
 
 #### Get shop information
 ```bash
-npx tsx cli.ts info [-s "Store Name"]
+npx tsx cli.ts shop info [-s "Store Name"]
 ```
 
 ### Metafield Operations

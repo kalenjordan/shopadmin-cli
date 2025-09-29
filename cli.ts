@@ -29,7 +29,12 @@ program
   .description(description)
   .version('1.0.0');
 
-program
+// Shop command with subcommands
+const shop = program
+  .command('shop')
+  .description('Manage Shopify stores');
+
+shop
   .command('add')
   .description('Add a new Shopify store')
   .option('-s, --subdomain <subdomain>', 'Store subdomain (e.g., your-store or your-store.myshopify.com)')
@@ -89,14 +94,14 @@ program
     }
   });
 
-program
+shop
   .command('list')
   .description('List all configured Shopify stores')
   .action(() => {
     try {
       const shops = listShops();
       if (shops.length === 0) {
-        console.log('No shops configured yet. Use "shopadmin add" to add a shop.');
+        console.log('No shops configured yet. Use "shopadmin shop add" to add a shop.');
         return;
       }
 
@@ -120,7 +125,7 @@ program
     }
   });
 
-program
+shop
   .command('remove')
   .description('Remove a Shopify store')
   .requiredOption('-n, --name <name>', 'Store name to remove')
@@ -137,7 +142,7 @@ program
     }
   });
 
-program
+shop
   .command('info')
   .description('Show detailed information about a shop')
   .option('-s, --shop <name>', 'Shop name to use (overrides default)')
@@ -151,7 +156,7 @@ program
     await showShopInfo({ ...options, shop });
   });
 
-program
+shop
   .command('default')
   .description('Set the default shop for this directory')
   .action(async () => {
@@ -159,7 +164,7 @@ program
       const shops = listShops();
 
       if (shops.length === 0) {
-        console.log('No shops configured yet. Use "shopadmin add" to add a shop.');
+        console.log('No shops configured yet. Use "shopadmin shop add" to add a shop.');
         process.exit(1);
       }
 
