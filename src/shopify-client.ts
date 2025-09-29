@@ -99,23 +99,24 @@ export function createShopifyClient(shop: Shop) {
   const client = {
     ...baseClient,
     request: async (query: string, options?: any) => {
-      try {
-        const response = await baseClient.request(query, options);
-        return response;
-      } catch (error: any) {
-        // Check for authentication errors
-        if (error.message?.toLowerCase().includes('unauthorized') ||
-            error.message?.toLowerCase().includes('invalid api key') ||
-            error.response?.errors?.some((e: any) =>
-              e.message?.toLowerCase().includes('access denied'))) {
+      const response = await baseClient.request(query, options);
+
+      // Check if the response contains GraphQL errors
+      if (response.errors?.graphQLErrors && Array.isArray(response.errors.graphQLErrors)) {
+        const accessError = response.errors.graphQLErrors.find((e: any) =>
+          e.extensions?.code === 'ACCESS_DENIED');
+
+        if (accessError) {
+          const field = accessError.path?.[0] || 'resource';
           throw new Error(
-            `Authentication failed for shop "${formatShopName(shop.name)}".\n` +
-            `The access token may be invalid or expired.\n` +
-            `To update it, run: shopadmin add -n "${shop.name}"`
+            `Access denied for "${field}" field.\n` +
+            `Your access token does not have the required permissions.\n` +
+            `Documentation: https://shopify.dev/api/usage/access-scopes`
           );
         }
-        throw error;
       }
+
+      return response;
     }
   };
 

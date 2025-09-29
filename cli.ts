@@ -239,4 +239,21 @@ metafield
     await deleteUnstructuredMetafields({ ...options, shop, resourceType });
   });
 
+// Customer command with subcommands
+const customer = program
+  .command('customer')
+  .description('Manage customer data');
+
+customer
+  .command('download')
+  .description('Download customers with order history to JSON')
+  .option('-s, --shop <name>', 'Shop name to use (overrides default)')
+  .option('-o, --output <file>', 'Output file path (default: customers-{timestamp}.json)')
+  .option('-v, --verbose', 'Show progress and API calls')
+  .action(async (options) => {
+    const shop = await selectShop(options.shop);
+    const { downloadCustomers } = await import('./src/commands/customer-download');
+    await downloadCustomers({ ...options, shop });
+  });
+
 program.parse(process.argv);
