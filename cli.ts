@@ -256,4 +256,20 @@ customer
     await downloadCustomers({ ...options, shop });
   });
 
+// Order command with subcommands
+const order = program
+  .command('order')
+  .description('Manage orders');
+
+order
+  .command('create')
+  .description('Create a new order interactively')
+  .option('-s, --shop <name>', 'Shop name to use (overrides default)')
+  .option('-v, --verbose', 'Show detailed progress')
+  .action(async (options) => {
+    const shop = await selectShop(options.shop);
+    const { createOrder } = await import('./src/commands/order-create');
+    await createOrder({ ...options, shop });
+  });
+
 program.parse(process.argv);

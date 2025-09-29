@@ -90,13 +90,9 @@ export async function downloadCustomers(options: CommandOptions) {
 
     // Transform data to desired format
     const exportData = customers.map(customer => ({
-      id: customer.id,
-      email: customer.email,
-      firstName: customer.firstName,
-      lastName: customer.lastName,
+      id: customer.id.split('/').pop(),
       totalOrders: customer.numberOfOrders,
       orders: customer.orders?.map(order => ({
-        id: order.id,
         name: order.name,
         createdAt: order.createdAt,
         totalPrice: order.totalPrice.amount,
