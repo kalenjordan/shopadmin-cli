@@ -203,6 +203,18 @@ const product = program
   .command('product')
   .description('Manage product data');
 
+product
+  .command('create')
+  .description('Create a random product and publish to online store')
+  .option('-s, --shop <name>', 'Shop name to use (overrides default)')
+  .option('-v, --verbose', 'Show detailed progress')
+  .option('-l, --limit <number>', 'Number of products to create (default: 1)', '1')
+  .action(async (options) => {
+    const shop = await selectShop(options.shop);
+    const { createProduct } = await import('./src/commands/product-create');
+    await createProduct({ ...options, shop });
+  });
+
 // Product metafields subcommand
 const productMetafields = product
   .command('metafields')
@@ -249,6 +261,7 @@ customer
   .description('Download customers with order history to JSON')
   .option('-s, --shop <name>', 'Shop name to use (overrides default)')
   .option('-o, --output <file>', 'Output file path (default: customers-{timestamp}.json)')
+  .option('-l, --limit <number>', 'Maximum number of orders to download (default: 5000)', '5000')
   .option('-v, --verbose', 'Show progress and API calls')
   .action(async (options) => {
     const shop = await selectShop(options.shop);

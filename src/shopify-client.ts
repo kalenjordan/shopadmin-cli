@@ -78,7 +78,25 @@ export async function selectShop(overrideName?: string): Promise<Shop> {
   return getShop(shopName)!;
 }
 
-export function createShopifyClient(shop: Shop) {
+interface GraphQLError {
+  extensions?: {
+    code?: string;
+  };
+  path?: string[];
+}
+
+export interface GraphQLResponse<T = unknown> {
+  data: T;
+  errors?: {
+    graphQLErrors?: GraphQLError[];
+  };
+}
+
+export interface ShopifyClient {
+  request: <T = unknown>(query: string, options?: { variables?: Record<string, unknown> }) => Promise<GraphQLResponse<T>>;
+}
+
+export function createShopifyClient(shop: Shop): ShopifyClient {
   // Get API version from config
   const config = loadShops();
 
@@ -96,14 +114,14 @@ export function createShopifyClient(shop: Shop) {
   });
 
   // Wrap the client to add better error handling
-  const client = {
+  const client: ShopifyClient = {
     ...baseClient,
-    request: async (query: string, options?: any) => {
-      const response = await baseClient.request(query, options);
+    request: async <T = unknown>(query: string, options?: { variables?: Record<string, unknown> }): Promise<GraphQLResponse<T>> => {
+      const response = await baseClient.request(query, options) as GraphQLResponse<T>;
 
       // Check if the response contains GraphQL errors
       if (response.errors?.graphQLErrors && Array.isArray(response.errors.graphQLErrors)) {
-        const accessError = response.errors.graphQLErrors.find((e: any) =>
+        const accessError = response.errors.graphQLErrors.find((e: GraphQLError) =>
           e.extensions?.code === 'ACCESS_DENIED');
 
         if (accessError) {

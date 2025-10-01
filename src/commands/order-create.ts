@@ -1,4 +1,4 @@
-import { createShopifyClient } from '../shopify-client';
+import { createShopifyClient, ShopifyClient } from '../shopify-client';
 import { formatShopName } from '../utils/colors';
 import { Shop } from '../types';
 import { SEARCH_CUSTOMERS, SEARCH_PRODUCTS, CREATE_DRAFT_ORDER, COMPLETE_DRAFT_ORDER } from '../graphql/orders';
@@ -10,6 +10,16 @@ interface CommandOptions {
   verbose?: boolean;
 }
 
+interface Address {
+  address1: string | null;
+  address2: string | null;
+  city: string | null;
+  province: string | null;
+  country: string | null;
+  zip: string | null;
+  phone: string | null;
+}
+
 interface Customer {
   id: string;
   email: string;
@@ -18,7 +28,7 @@ interface Customer {
   displayName: string;
   phone: string | null;
   numberOfOrders: number;
-  defaultAddress: any;
+  defaultAddress: Address | null;
 }
 
 interface Product {
@@ -63,7 +73,24 @@ export async function createOrder(options: CommandOptions) {
     // Step 3: Create draft order
     console.log(chalk.cyan('\nCreating draft order...'));
 
-    const draftOrderInput: any = {
+    interface DraftOrderInput {
+      customerId: string;
+      email: string;
+      lineItems: Array<{ variantId: string; quantity: number }>;
+      shippingAddress?: {
+        address1: string | null;
+        address2: string | null;
+        city: string | null;
+        province: string | null;
+        country: string | null;
+        zip: string | null;
+        phone: string | null;
+        firstName: string;
+        lastName: string;
+      };
+    }
+
+    const draftOrderInput: DraftOrderInput = {
       customerId: customer.id,
       email: customer.email,
       lineItems: lineItems.map(item => ({
@@ -91,9 +118,14 @@ export async function createOrder(options: CommandOptions) {
       variables: { input: draftOrderInput }
     });
 
+    interface UserError {
+      field?: string[];
+      message: string;
+    }
+
     if (draftOrderResponse.data.draftOrderCreate.userErrors.length > 0) {
       const errors = draftOrderResponse.data.draftOrderCreate.userErrors
-        .map((e: any) => `${e.field?.join('.')}: ${e.message}`)
+        .map((e: UserError) => `${e.field?.join('.')}: ${e.message}`)
         .join('\n');
       throw new Error(`Draft order creation failed:\n${errors}`);
     }
@@ -129,7 +161,7 @@ export async function createOrder(options: CommandOptions) {
 
       if (completeResponse.data.draftOrderComplete.userErrors.length > 0) {
         const errors = completeResponse.data.draftOrderComplete.userErrors
-          .map((e: any) => `${e.field?.join('.')}: ${e.message}`)
+          .map((e: UserError) => `${e.field?.join('.')}: ${e.message}`)
           .join('\n');
         throw new Error(`Order completion failed:\n${errors}`);
       }
@@ -145,16 +177,17 @@ export async function createOrder(options: CommandOptions) {
       console.log(chalk.gray(`You can complete it later in the Shopify admin.`));
     }
 
-  } catch (error: any) {
-    console.error(chalk.red('\n❌ Error creating order:'), error.message || error);
-    if (verbose && error.stack) {
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(chalk.red('\n❌ Error creating order:'), errorMessage);
+    if (verbose && error instanceof Error && error.stack) {
       console.error(chalk.gray(error.stack));
     }
     process.exit(1);
   }
 }
 
-async function selectCustomer(client: any, verbose: boolean): Promise<Customer> {
+async function selectCustomer(client: ShopifyClient, verbose: boolean): Promise<Customer> {
   if (verbose) {
     console.log(chalk.gray('Fetching customers...'));
   }
@@ -167,7 +200,11 @@ async function selectCustomer(client: any, verbose: boolean): Promise<Customer> 
     }
   });
 
-  const customers = response.data.customers.edges.map((edge: any) => edge.node);
+  interface CustomerEdge {
+    node: Customer;
+  }
+
+  const customers = response.data.customers.edges.map((edge: CustomerEdge) => edge.node);
 
   if (customers.length === 0) {
     throw new Error('No customers found in your store. Please create a customer first.');
@@ -188,7 +225,7 @@ async function selectCustomer(client: any, verbose: boolean): Promise<Customer> 
   return customers.find((c: Customer) => c.id === customerId);
 }
 
-async function selectProducts(client: any, verbose: boolean): Promise<Array<{ variantId: string; quantity: number }>> {
+async function selectProducts(client: ShopifyClient, verbose: boolean): Promise<Array<{ variantId: string; quantity: number }>> {
   const lineItems: Array<{ variantId: string; quantity: number; productTitle: string; variantTitle: string; price: string }> = [];
   let addMore = true;
 
@@ -204,9 +241,21 @@ async function selectProducts(client: any, verbose: boolean): Promise<Array<{ va
     }
   });
 
-  const products = response.data.products.edges.map((edge: any) => ({
+  interface VariantEdge {
+    node: Variant;
+  }
+
+  interface ProductEdge {
+    node: Product & {
+      variants: {
+        edges: VariantEdge[];
+      };
+    };
+  }
+
+  const products = response.data.products.edges.map((edge: ProductEdge) => ({
     ...edge.node,
-    variants: edge.node.variants.edges.map((v: any) => v.node)
+    variants: edge.node.variants.edges.map((v: VariantEdge) => v.node)
   }));
 
   if (products.length === 0) {

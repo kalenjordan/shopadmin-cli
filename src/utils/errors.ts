@@ -27,8 +27,10 @@ export function parseGraphQLErrors(errors: GraphQLError[] | unknown, shop?: Shop
 
   if (Array.isArray(errors)) {
     errorMessage = errors.map(err => err.message || err).join(', ');
-  } else if (typeof errors === 'object') {
-    errorMessage = (errors as any).message || JSON.stringify(errors);
+  } else if (typeof errors === 'object' && errors !== null) {
+    errorMessage = ('message' in errors && typeof errors.message === 'string')
+      ? errors.message
+      : JSON.stringify(errors);
   } else {
     errorMessage = String(errors);
   }

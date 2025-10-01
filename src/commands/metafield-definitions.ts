@@ -1,5 +1,5 @@
 import inquirer from 'inquirer';
-import { createShopifyClient } from '../shopify-client';
+import { createShopifyClient, ShopifyClient } from '../shopify-client';
 import { Shop } from '../types';
 import {
   GET_PRODUCTS_WITH_UNSTRUCTURED_METAFIELDS,
@@ -67,7 +67,7 @@ function getResourceHandle(resource: Product | ProductVariant, isVariant: boolea
 }
 
 async function scanBatch(
-  client: any,
+  client: ShopifyClient,
   cursor: string | null,
   resourceType: ResourceType,
   verbose: boolean
@@ -137,7 +137,7 @@ async function scanBatch(
 }
 
 async function checkExistingDefinition(
-  client: any,
+  client: ShopifyClient,
   namespace: string,
   key: string,
   ownerType: OwnerType
@@ -153,7 +153,7 @@ async function checkExistingDefinition(
 }
 
 async function createTemporaryDefinition(
-  client: any,
+  client: ShopifyClient,
   metafield: ProcessedMetafield,
   ownerType: OwnerType
 ): Promise<string> {
@@ -180,7 +180,7 @@ async function createTemporaryDefinition(
 }
 
 async function deleteDefinitionAndMetafields(
-  client: any,
+  client: ShopifyClient,
   definitionId: string
 ): Promise<void> {
   const response = await client.request(DELETE_METAFIELD_DEFINITION, {
@@ -197,7 +197,7 @@ async function deleteDefinitionAndMetafields(
 }
 
 async function processMetafield(
-  client: any,
+  client: ShopifyClient,
   metafield: ProcessedMetafield,
   ownerType: OwnerType,
   force: boolean,

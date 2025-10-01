@@ -114,11 +114,12 @@ export async function showShopInfo(options: CommandOptions) {
 
     console.log('\n' + '═'.repeat(80));
 
-  } catch (error: any) {
-    if (error.message?.includes('Authentication failed')) {
-      console.error('\n' + error.message);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes('Authentication failed')) {
+      console.error('\n' + errorMessage);
     } else {
-      console.error('\n❌ Error fetching shop information:', error.message || error);
+      console.error('\n❌ Error fetching shop information:', errorMessage);
     }
     process.exit(1);
   }

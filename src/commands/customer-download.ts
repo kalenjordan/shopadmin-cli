@@ -1,14 +1,16 @@
-import { createShopifyClient } from '../shopify-client';
+import { createShopifyClient, ShopifyClient } from '../shopify-client';
 import { formatShopName } from '../utils/colors';
 import { Shop } from '../types';
-import { GET_CUSTOMERS_WITH_ORDER_COUNT, GET_CUSTOMER_ORDERS } from '../graphql/customers';
+import { GET_ORDERS_WITH_CUSTOMER } from '../graphql/orders';
 import chalk from 'chalk';
 import fs from 'fs/promises';
 import path from 'path';
+import os from 'os';
 
 interface CommandOptions {
   shop: Shop;
   output?: string;
+  limit?: string;
   verbose?: boolean;
 }
 
@@ -52,41 +54,66 @@ interface LineItem {
 }
 
 export async function downloadCustomers(options: CommandOptions) {
-  const { shop, output, verbose = false } = options;
+  const { shop, output, limit = '5000', verbose = false } = options;
+  const maxOrders = parseInt(limit, 10);
+
+  if (isNaN(maxOrders) || maxOrders <= 0) {
+    throw new Error('Limit must be a positive number');
+  }
 
   try {
     const client = createShopifyClient(shop);
 
-    console.log(`\n${chalk.cyan('Fetching customers with orders from')} ${formatShopName(shop.name)}...\n`);
+    console.log(`\n${chalk.cyan('Fetching orders from')} ${formatShopName(shop.name)}...\n`);
 
-    // Fetch all customers with at least one order
-    const customers = await fetchAllCustomers(client, verbose);
+    // Fetch all orders with customer information
+    const orders = await fetchAllOrders(client, maxOrders, verbose);
 
-    if (customers.length === 0) {
-      console.log(chalk.yellow('No customers with orders found.'));
+    if (orders.length === 0) {
+      console.log(chalk.yellow('No orders found.'));
       return;
     }
 
-    console.log(chalk.green(`✓ Found ${customers.length} customers with orders`));
-    console.log(chalk.cyan('Fetching order details...\n'));
+    console.log(chalk.green(`✓ Found ${orders.length} orders`));
+    console.log(chalk.cyan('Grouping orders by customer...\n'));
 
-    // Fetch orders for each customer
-    let processedCustomers = 0;
-    for (const customer of customers) {
-      if (verbose) {
-        console.log(chalk.gray(`Fetching orders for customer ${customer.email}...`));
+    // Group orders by customer
+    const customerMap = new Map<string, Customer>();
+
+    for (const order of orders) {
+      if (!order.customer) {
+        if (verbose) {
+          console.log(chalk.yellow(`  Order ${order.name} has no customer, skipping`));
+        }
+        continue;
       }
 
-      const orders = await fetchAllOrdersForCustomer(client, customer.id, verbose);
-      customer.orders = orders;
+      const customerId = order.customer.id;
 
-      processedCustomers++;
-      if (!verbose && processedCustomers % 10 === 0) {
-        console.log(chalk.gray(`Progress: ${processedCustomers}/${customers.length} customers processed`));
+      if (!customerMap.has(customerId)) {
+        customerMap.set(customerId, {
+          id: order.customer.id,
+          email: order.customer.email,
+          firstName: order.customer.firstName,
+          lastName: order.customer.lastName,
+          numberOfOrders: order.customer.numberOfOrders,
+          orders: []
+        });
       }
+
+      const customer = customerMap.get(customerId)!;
+      customer.orders!.push({
+        id: order.id,
+        name: order.name,
+        createdAt: order.createdAt,
+        totalPrice: order.totalPrice,
+        lineItems: order.lineItems
+      });
     }
 
-    console.log(chalk.green(`✓ Fetched orders for all ${customers.length} customers`));
+    const customers = Array.from(customerMap.values());
+
+    console.log(chalk.green(`✓ Grouped orders into ${customers.length} customers`));
 
     // Transform data to desired format
     const exportData = customers.map(customer => ({
@@ -109,8 +136,9 @@ export async function downloadCustomers(options: CommandOptions) {
       })) || []
     }));
 
-    // Determine output file path
-    const outputPath = output || `customers-${Date.now()}.json`;
+    // Determine output file path - default to Desktop
+    const defaultFileName = `customers-${Date.now()}.json`;
+    const outputPath = output || path.join(os.homedir(), 'Desktop', defaultFileName);
     const absolutePath = path.isAbsolute(outputPath)
       ? outputPath
       : path.join(process.cwd(), outputPath);
@@ -125,14 +153,15 @@ export async function downloadCustomers(options: CommandOptions) {
     console.log(chalk.green(`\n✓ Customer data exported successfully`));
     console.log(chalk.gray(`  File: ${absolutePath}`));
     console.log(chalk.gray(`  Customers: ${customers.length}`));
-    console.log(chalk.gray(`  Total orders: ${customers.reduce((sum, c) => sum + c.numberOfOrders, 0)}`));
+    console.log(chalk.gray(`  Total orders: ${customers.reduce((sum, c) => sum + (c.orders?.length || 0), 0)}`));
 
-  } catch (error: any) {
-    if (error.message?.includes('Authentication failed')) {
-      console.error('\n' + error.message);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (errorMessage.includes('Authentication failed')) {
+      console.error('\n' + errorMessage);
     } else {
-      console.error('\n❌ Error downloading customer data:', error.message || error);
-      if (verbose && error.stack) {
+      console.error('\n❌ Error downloading customer data:', errorMessage);
+      if (verbose && error instanceof Error && error.stack) {
         console.error(chalk.gray(error.stack));
       }
     }
@@ -140,65 +169,94 @@ export async function downloadCustomers(options: CommandOptions) {
   }
 }
 
-async function fetchAllCustomers(
-  client: any,
+interface OrderWithCustomer {
+  id: string;
+  name: string;
+  createdAt: string;
+  totalPrice: {
+    amount: string;
+    currencyCode: string;
+  };
+  customer: {
+    id: string;
+    email: string;
+    firstName: string | null;
+    lastName: string | null;
+    numberOfOrders: number;
+  } | null;
+  lineItems: LineItem[];
+}
+
+async function fetchAllOrders(
+  client: ShopifyClient,
+  maxOrders: number,
   verbose: boolean
-): Promise<Customer[]> {
-  const allCustomers: Customer[] = [];
+): Promise<OrderWithCustomer[]> {
+  const allOrders: OrderWithCustomer[] = [];
   let cursor: string | null = null;
   let hasMore = true;
   let page = 0;
 
-  while (hasMore) {
+  while (hasMore && allOrders.length < maxOrders) {
     page++;
-    if (verbose) {
-      console.log(chalk.gray(`Fetching customers page ${page}...`));
-    }
+    console.log(chalk.gray(`Fetching orders batch ${page}...`));
 
-    const response = await client.request(GET_CUSTOMERS_WITH_ORDER_COUNT, {
+    const remainingToFetch = maxOrders - allOrders.length;
+    const batchSize = Math.min(250, remainingToFetch);
+
+    const response = await client.request(GET_ORDERS_WITH_CUSTOMER, {
       variables: {
-        numCustomers: 250,
-        cursor,
-        query: 'orders_count:>0'
-      }
-    });
-
-    const edges = response.data.customers.edges;
-    const customers = edges.map((edge: any) => edge.node);
-    allCustomers.push(...customers);
-
-    const pageInfo = response.data.customers.pageInfo;
-    hasMore = pageInfo.hasNextPage;
-    cursor = pageInfo.endCursor;
-
-    if (verbose) {
-      console.log(chalk.gray(`  Got ${customers.length} customers (total: ${allCustomers.length})`));
-    }
-  }
-
-  return allCustomers;
-}
-
-async function fetchAllOrdersForCustomer(
-  client: any,
-  customerId: string,
-  verbose: boolean
-): Promise<Order[]> {
-  const allOrders: Order[] = [];
-  let cursor: string | null = null;
-  let hasMore = true;
-
-  while (hasMore) {
-    const response = await client.request(GET_CUSTOMER_ORDERS, {
-      variables: {
-        customerId,
-        numOrders: 100,
+        numOrders: batchSize,
         cursor
       }
     });
 
-    const edges = response.data.customer.orders.edges;
-    const orders = edges.map((edge: any) => {
+    interface LineItemEdge {
+      node: {
+        id: string;
+        title: string;
+        sku: string | null;
+        quantity: number;
+        originalUnitPriceSet: {
+          shopMoney: {
+            amount: string;
+            currencyCode: string;
+          };
+        };
+        variant: {
+          id: string;
+          title: string;
+          selectedOptions: Array<{ name: string; value: string }>;
+        } | null;
+      };
+    }
+
+    interface OrderEdge {
+      node: {
+        id: string;
+        name: string;
+        createdAt: string;
+        totalPriceSet: {
+          shopMoney: {
+            amount: string;
+            currencyCode: string;
+          };
+        };
+        customer: {
+          id: string;
+          email: string;
+          firstName: string | null;
+          lastName: string | null;
+          numberOfOrders: number;
+        } | null;
+        lineItems: {
+          edges: LineItemEdge[];
+        };
+      };
+    }
+
+    const edges = response.data.orders.edges;
+    const orders = edges.map((edge: OrderEdge) => {
       const node = edge.node;
       return {
         id: node.id,
@@ -208,7 +266,8 @@ async function fetchAllOrdersForCustomer(
           amount: node.totalPriceSet.shopMoney.amount,
           currencyCode: node.totalPriceSet.shopMoney.currencyCode
         },
-        lineItems: node.lineItems.edges.map((lineItemEdge: any) => {
+        customer: node.customer,
+        lineItems: node.lineItems.edges.map((lineItemEdge: LineItemEdge) => {
           const item = lineItemEdge.node;
           return {
             id: item.id,
@@ -231,9 +290,11 @@ async function fetchAllOrdersForCustomer(
 
     allOrders.push(...orders);
 
-    const pageInfo = response.data.customer.orders.pageInfo;
+    const pageInfo = response.data.orders.pageInfo;
     hasMore = pageInfo.hasNextPage;
     cursor = pageInfo.endCursor;
+
+    console.log(chalk.gray(`  ✓ Fetched ${orders.length} orders (total: ${allOrders.length})`));
   }
 
   return allOrders;

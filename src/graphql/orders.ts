@@ -130,3 +130,58 @@ export const COMPLETE_DRAFT_ORDER = `
     }
   }
 `;
+
+export const GET_ORDERS_WITH_CUSTOMER = `
+  query getOrders($numOrders: Int!, $cursor: String) {
+    orders(first: $numOrders, after: $cursor) {
+      edges {
+        node {
+          id
+          name
+          createdAt
+          totalPriceSet {
+            shopMoney {
+              amount
+              currencyCode
+            }
+          }
+          customer {
+            id
+            email
+            firstName
+            lastName
+            numberOfOrders
+          }
+          lineItems(first: 100) {
+            edges {
+              node {
+                id
+                title
+                sku
+                quantity
+                originalUnitPriceSet {
+                  shopMoney {
+                    amount
+                    currencyCode
+                  }
+                }
+                variant {
+                  id
+                  title
+                  selectedOptions {
+                    name
+                    value
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+    }
+  }
+`;
