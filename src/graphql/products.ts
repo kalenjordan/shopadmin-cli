@@ -1,6 +1,6 @@
 export const CREATE_PRODUCT = `
-  mutation productCreate($input: ProductInput!) {
-    productCreate(input: $input) {
+  mutation productCreate($input: ProductInput!, $media: [CreateMediaInput!]) {
+    productCreate(input: $input, media: $media) {
       product {
         id
         title
@@ -39,6 +39,30 @@ export const UPDATE_VARIANT = `
       productVariants {
         id
         price
+        sku
+      }
+      userErrors {
+        field
+        message
+      }
+    }
+  }
+`;
+
+export const UPDATE_PRODUCT = `
+  mutation productUpdate($input: ProductInput!) {
+    productUpdate(input: $input) {
+      product {
+        id
+        variants(first: 1) {
+          edges {
+            node {
+              id
+              sku
+              price
+            }
+          }
+        }
       }
       userErrors {
         field

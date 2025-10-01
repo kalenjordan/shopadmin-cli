@@ -1,7 +1,7 @@
 import { createShopifyClient } from '../shopify-client';
 import { formatShopName } from '../utils/colors';
 import { Shop } from '../types';
-import { CREATE_PRODUCT, UPDATE_VARIANT, ACTIVATE_INVENTORY, GET_LOCATIONS, PUBLISH_PRODUCT, GET_PUBLICATIONS } from '../graphql/products';
+import { CREATE_PRODUCT, UPDATE_VARIANT, UPDATE_PRODUCT, ACTIVATE_INVENTORY, GET_LOCATIONS, PUBLISH_PRODUCT, GET_PUBLICATIONS } from '../graphql/products';
 import chalk from 'chalk';
 
 interface CommandOptions {
@@ -54,7 +54,12 @@ function generateRandomProduct() {
   const description = DESCRIPTIONS[Math.floor(Math.random() * DESCRIPTIONS.length)];
   const price = (Math.random() * (99.99 - 9.99) + 9.99).toFixed(2);
 
-  return { title, description, price };
+  // Generate SKU from title: take first 4 chars of each word
+  const words = title.split(' ');
+  const skuParts = words.map(word => word.substring(0, 4).toUpperCase());
+  const sku = skuParts.join('-');
+
+  return { title, description, price, sku };
 }
 
 export async function createProduct(options: CommandOptions) {
@@ -115,12 +120,13 @@ export async function createProduct(options: CommandOptions) {
 
 async function createSingleProduct(client: any, shop: Shop, verbose: boolean) {
   // Generate random product data
-  const { title, description, price } = generateRandomProduct();
+  const { title, description, price, sku } = generateRandomProduct();
 
   if (verbose) {
     console.log(chalk.gray(`Product: ${title}`));
     console.log(chalk.gray(`Description: ${description}`));
     console.log(chalk.gray(`Price: $${price}`));
+    console.log(chalk.gray(`SKU: ${sku}`));
   }
 
   // Create the product
@@ -195,6 +201,42 @@ async function createSingleProduct(client: any, shop: Shop, verbose: boolean) {
   }
 
   console.log(chalk.green(`✓ Price set to $${price}`));
+
+  // Update variant with SKU using bulk update with both price and SKU
+  console.log(chalk.cyan('Setting product SKU...'));
+
+  // We need to use a second bulk update call with the SKU this time
+  const skuBulkUpdateResponse = await client.request(UPDATE_VARIANT, {
+    variables: {
+      productId: product.id,
+      variants: [
+        {
+          id: variant.id,
+          inventoryPolicy: 'DENY',
+          inventoryItem: {
+            sku: sku
+          }
+        }
+      ]
+    }
+  });
+
+  if (verbose) {
+    console.log(chalk.gray('SKU update response:'), JSON.stringify(skuBulkUpdateResponse, null, 2));
+  }
+
+  if (!skuBulkUpdateResponse.data) {
+    throw new Error(`SKU update failed: No data returned. Response: ${JSON.stringify(skuBulkUpdateResponse)}`);
+  }
+
+  if (skuBulkUpdateResponse.data.productVariantsBulkUpdate.userErrors.length > 0) {
+    const errors = skuBulkUpdateResponse.data.productVariantsBulkUpdate.userErrors
+      .map((e: UserError) => `${e.field?.join('.')}: ${e.message}`)
+      .join('\n');
+    throw new Error(`SKU update failed:\n${errors}`);
+  }
+
+  console.log(chalk.green(`✓ SKU set to ${sku}`));
 
   // Get location and set inventory (optional - may fail due to permissions)
   try {
@@ -296,6 +338,7 @@ async function createSingleProduct(client: any, shop: Shop, verbose: boolean) {
 
   console.log(chalk.green(`\n✓ Product created successfully!`));
   console.log(chalk.gray(`  Title: ${product.title}`));
+  console.log(chalk.gray(`  SKU: ${sku}`));
   console.log(chalk.gray(`  Price: $${price}`));
   console.log(chalk.gray(`  Description: ${description}`));
 }
