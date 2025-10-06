@@ -167,3 +167,322 @@ export const GET_PUBLICATIONS = `
     }
   }
 `;
+
+export const GET_PRODUCT_BY_HANDLE = `
+  query getProductByHandle($handle: String!) {
+    productByHandle(handle: $handle) {
+      id
+      title
+      description
+      descriptionHtml
+      handle
+      status
+      vendor
+      productType
+      tags
+      createdAt
+      updatedAt
+      publishedAt
+      onlineStoreUrl
+      featuredImage {
+        id
+        url
+        altText
+        width
+        height
+      }
+      media(first: 250) {
+        edges {
+          node {
+            ... on MediaImage {
+              id
+              image {
+                url
+                altText
+                width
+                height
+              }
+              mediaContentType
+            }
+          }
+        }
+      }
+      variants(first: 250) {
+        edges {
+          node {
+            id
+            title
+            price
+            compareAtPrice
+            sku
+            barcode
+            position
+            availableForSale
+            inventoryPolicy
+            inventoryQuantity
+            inventoryItem {
+              id
+              tracked
+            }
+            selectedOptions {
+              name
+              value
+            }
+            metafields(first: 250) {
+              edges {
+                node {
+                  id
+                  namespace
+                  key
+                  value
+                  type
+                  description
+                  createdAt
+                  updatedAt
+                }
+              }
+            }
+          }
+        }
+      }
+      metafields(first: 250) {
+        edges {
+          node {
+            id
+            namespace
+            key
+            value
+            type
+            description
+            createdAt
+            updatedAt
+          }
+        }
+      }
+      options {
+        id
+        name
+        values
+        position
+      }
+      seo {
+        title
+        description
+      }
+    }
+  }
+`;
+
+export const GET_PRODUCT_BY_ID = `
+  query getProductById($id: ID!) {
+    product(id: $id) {
+      id
+      title
+      description
+      descriptionHtml
+      handle
+      status
+      vendor
+      productType
+      tags
+      createdAt
+      updatedAt
+      publishedAt
+      onlineStoreUrl
+      featuredImage {
+        id
+        url
+        altText
+        width
+        height
+      }
+      media(first: 250) {
+        edges {
+          node {
+            ... on MediaImage {
+              id
+              image {
+                url
+                altText
+                width
+                height
+              }
+              mediaContentType
+            }
+          }
+        }
+      }
+      variants(first: 250) {
+        edges {
+          node {
+            id
+            title
+            price
+            compareAtPrice
+            sku
+            barcode
+            position
+            availableForSale
+            inventoryPolicy
+            inventoryQuantity
+            inventoryItem {
+              id
+              tracked
+            }
+            selectedOptions {
+              name
+              value
+            }
+            metafields(first: 250) {
+              edges {
+                node {
+                  id
+                  namespace
+                  key
+                  value
+                  type
+                  description
+                  createdAt
+                  updatedAt
+                }
+              }
+            }
+          }
+        }
+      }
+      metafields(first: 250) {
+        edges {
+          node {
+            id
+            namespace
+            key
+            value
+            type
+            description
+            createdAt
+            updatedAt
+          }
+        }
+      }
+      options {
+        id
+        name
+        values
+        position
+      }
+      seo {
+        title
+        description
+      }
+    }
+  }
+`;
+
+export const LIST_PRODUCTS = `
+  query listProducts($first: Int!, $sortKey: ProductSortKeys!, $reverse: Boolean!) {
+    products(first: $first, sortKey: $sortKey, reverse: $reverse) {
+      edges {
+        node {
+          id
+          title
+          description
+          descriptionHtml
+          handle
+          status
+          vendor
+          productType
+          tags
+          createdAt
+          updatedAt
+          publishedAt
+          onlineStoreUrl
+          featuredImage {
+            id
+            url
+            altText
+            width
+            height
+          }
+          media(first: 250) {
+            edges {
+              node {
+                ... on MediaImage {
+                  id
+                  image {
+                    url
+                    altText
+                    width
+                    height
+                  }
+                  mediaContentType
+                }
+              }
+            }
+          }
+          variants(first: 250) {
+            edges {
+              node {
+                id
+                title
+                price
+                compareAtPrice
+                sku
+                barcode
+                position
+                availableForSale
+                inventoryPolicy
+                inventoryQuantity
+                inventoryItem {
+                  id
+                  tracked
+                }
+                selectedOptions {
+                  name
+                  value
+                }
+                metafields(first: 250) {
+                  edges {
+                    node {
+                      id
+                      namespace
+                      key
+                      value
+                      type
+                      description
+                      createdAt
+                      updatedAt
+                    }
+                  }
+                }
+              }
+            }
+          }
+          metafields(first: 250) {
+            edges {
+              node {
+                id
+                namespace
+                key
+                value
+                type
+                description
+                createdAt
+                updatedAt
+              }
+            }
+          }
+          options {
+            id
+            name
+            values
+            position
+          }
+          seo {
+            title
+            description
+          }
+        }
+      }
+    }
+  }
+`;

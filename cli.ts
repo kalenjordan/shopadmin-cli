@@ -215,6 +215,29 @@ product
     await createProduct({ ...options, shop });
   });
 
+product
+  .command('get <handleOrId>')
+  .description('Get a product by handle or ID')
+  .option('-s, --shop <name>', 'Shop name to use (overrides default)')
+  .option('-v, --verbose', 'Show detailed progress and GraphQL responses')
+  .action(async (handleOrId, options) => {
+    const shop = await selectShop(options.shop);
+    const { getProduct } = await import('./src/commands/product-get');
+    await getProduct({ ...options, handleOrId, shop });
+  });
+
+product
+  .command('list')
+  .description('List products ordered by updated date (descending)')
+  .option('-s, --shop <name>', 'Shop name to use (overrides default)')
+  .option('-l, --limit <number>', 'Number of products to fetch (default: 5)', '5')
+  .option('-v, --verbose', 'Show detailed progress and GraphQL responses')
+  .action(async (options) => {
+    const shop = await selectShop(options.shop);
+    const { listProducts } = await import('./src/commands/product-list');
+    await listProducts({ ...options, shop });
+  });
+
 // Product metafields subcommand
 const productMetafields = product
   .command('metafields')
