@@ -7,6 +7,21 @@ export const CREATE_PRODUCT = `
         description
         handle
         status
+        media(first: 10) {
+          edges {
+            node {
+              ... on MediaImage {
+                id
+                image {
+                  url
+                  altText
+                  width
+                  height
+                }
+              }
+            }
+          }
+        }
         variants(first: 1) {
           edges {
             node {

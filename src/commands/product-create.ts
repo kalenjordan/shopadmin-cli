@@ -59,7 +59,16 @@ function generateRandomProduct() {
   const skuParts = words.map(word => word.substring(0, 4).toUpperCase());
   const sku = skuParts.join('-');
 
-  return { title, description, price, sku };
+  // Generate 1-3 random placeholder images
+  const imageCount = Math.floor(Math.random() * 3) + 1;
+  const timestamp = Date.now();
+  const media = Array.from({ length: imageCount }, (_, i) => ({
+    originalSource: `https://picsum.photos/800/800?random=${timestamp}-${i}`,
+    alt: `${title} - Image ${i + 1}`,
+    mediaContentType: 'IMAGE' as const
+  }));
+
+  return { title, description, price, sku, media };
 }
 
 export async function createProduct(options: CommandOptions) {
@@ -120,13 +129,14 @@ export async function createProduct(options: CommandOptions) {
 
 async function createSingleProduct(client: any, shop: Shop, verbose: boolean) {
   // Generate random product data
-  const { title, description, price, sku } = generateRandomProduct();
+  const { title, description, price, sku, media } = generateRandomProduct();
 
   if (verbose) {
     console.log(chalk.gray(`Product: ${title}`));
     console.log(chalk.gray(`Description: ${description}`));
     console.log(chalk.gray(`Price: $${price}`));
     console.log(chalk.gray(`SKU: ${sku}`));
+    console.log(chalk.gray(`Images: ${media.length}`));
   }
 
   // Create the product
@@ -139,7 +149,7 @@ async function createSingleProduct(client: any, shop: Shop, verbose: boolean) {
   };
 
   const createResponse = await client.request(CREATE_PRODUCT, {
-    variables: { input: productInput }
+    variables: { input: productInput, media }
   });
 
   if (verbose) {
