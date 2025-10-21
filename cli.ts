@@ -308,4 +308,21 @@ order
     await createOrder({ ...options, shop });
   });
 
+// Catalog command with subcommands
+const catalog = program
+  .command('catalog')
+  .description('Manage catalogs');
+
+catalog
+  .command('list')
+  .description('List catalogs with ID and title')
+  .option('-s, --shop <name>', 'Shop name to use (overrides default)')
+  .option('-l, --limit <number>', 'Number of catalogs to fetch (default: 50)', '50')
+  .option('-v, --verbose', 'Show detailed progress and GraphQL responses')
+  .action(async (options) => {
+    const shop = await selectShop(options.shop);
+    const { listCatalogs } = await import('./src/commands/catalog-list');
+    await listCatalogs({ ...options, shop });
+  });
+
 program.parse(process.argv);
