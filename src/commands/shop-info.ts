@@ -67,6 +67,7 @@ export async function showShopInfo(options: CommandOptions) {
     // Basic Information
     console.log(chalk.cyan('Basic Information:'));
     console.log(`  ${chalk.gray('Store Name:')} ${shopData.name}`);
+    console.log(`  ${chalk.gray('Shop ID:')} ${shopData.id.split('/').pop()}`);
     console.log(`  ${chalk.gray('Email:')} ${shopData.email}`);
     console.log(`  ${chalk.gray('Primary Domain:')} ${shopData.primaryDomain.host}`);
     console.log(`  ${chalk.gray('MyShopify Domain:')} ${shopData.myshopifyDomain}`);
@@ -106,11 +107,6 @@ export async function showShopInfo(options: CommandOptions) {
     console.log(`  ${chalk.gray('API URL:')} ${shop.url}`);
     console.log(`  ${chalk.gray('Token:')} ${shop.accessToken.substring(0, 10)}...`);
     console.log(`  ${chalk.gray('Added:')} ${new Date(shop.addedAt).toLocaleString()}`);
-
-    if (verbose) {
-      console.log(chalk.cyan('\nShop ID:'));
-      console.log(`  ${shopData.id}`);
-    }
 
     console.log('\n' + '═'.repeat(80));
 
