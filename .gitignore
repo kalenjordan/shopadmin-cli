@@ -33,6 +33,7 @@ coverage/
 tmp/
 temp/
 *.tmp
+.cache
 
 # User configuration (contains sensitive tokens)
 ~/shopadmin.config.ts
