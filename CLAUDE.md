@@ -1,3 +1,6 @@
+
+@sessions/CLAUDE.sessions.md
+
 # Project-Specific Instructions for Claude
 
 ## CLI Execution
