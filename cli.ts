@@ -238,6 +238,18 @@ product
     await listProducts({ ...options, shop });
   });
 
+product
+  .command('count')
+  .description('Get product count')
+  .option('-s, --shop <name>', 'Shop name to use (overrides default)')
+  .option('-a, --active', 'Count only active products')
+  .option('-v, --verbose', 'Show detailed progress and GraphQL responses')
+  .action(async (options) => {
+    const shop = await selectShop(options.shop);
+    const { countProducts } = await import('./src/commands/product-count');
+    await countProducts({ ...options, shop });
+  });
+
 // Product metafields subcommand
 const productMetafields = product
   .command('metafields')

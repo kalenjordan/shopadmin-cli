@@ -486,3 +486,11 @@ export const LIST_PRODUCTS = `
     }
   }
 `;
+
+export const COUNT_PRODUCTS = `
+  query countProducts($query: String) {
+    productsCount(query: $query) {
+      count
+    }
+  }
+`;
